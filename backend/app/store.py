@@ -1,0 +1,64 @@
+"""In-memory state store for the prototype.
+
+Replace with PostgreSQL + SQLAlchemy for deployment (see CLAUDE.md). The shapes
+here intentionally mirror a persistent model so the swap is mechanical.
+"""
+from dataclasses import dataclass, field
+from itertools import count
+from typing import Any
+
+
+@dataclass
+class VectorSet:
+    vs_id: int
+    mode_folder: str          # e.g. "ML-KEM-keyGen-FIPS203"
+    status: str = "created"   # created|prompt_retrieved|response_submitted|disposition|certified|expired
+    response: dict | None = None
+    validation: dict | None = None
+
+
+@dataclass
+class TestSession:
+    session_id: int
+    vector_sets: list[VectorSet] = field(default_factory=list)
+    passed: bool | None = None
+
+
+class Store:
+    def __init__(self) -> None:
+        self._sessions: dict[int, TestSession] = {}
+        self._session_ids = count(1)
+        self._vs_ids = count(1)
+        self._requests: dict[int, dict[str, Any]] = {}
+        self._request_ids = count(1)
+
+    def create_session(self) -> TestSession:
+        sid = next(self._session_ids)
+        s = TestSession(session_id=sid)
+        self._sessions[sid] = s
+        return s
+
+    def get_session(self, sid: int) -> TestSession | None:
+        return self._sessions.get(sid)
+
+    def add_vector_set(self, session: TestSession, mode_folder: str) -> VectorSet:
+        vs = VectorSet(vs_id=next(self._vs_ids), mode_folder=mode_folder)
+        session.vector_sets.append(vs)
+        return vs
+
+    def get_vector_set(self, session: TestSession, vs_id: int) -> VectorSet | None:
+        return next((v for v in session.vector_sets if v.vs_id == vs_id), None)
+
+    def new_request(self) -> int:
+        rid = next(self._request_ids)
+        self._requests[rid] = {"status": "processing", "location": None}
+        return rid
+
+    def get_request(self, rid: int) -> dict | None:
+        return self._requests.get(rid)
+
+    def complete_request(self, rid: int, location: str) -> None:
+        self._requests[rid] = {"status": "approved", "location": location}
+
+
+store = Store()

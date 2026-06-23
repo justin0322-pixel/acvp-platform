@@ -1,0 +1,5 @@
+#!/bin/sh
+# Strip AI co-author / attribution trailers so repo contributors stay human-only.
+# Enable once per clone:  git config core.hooksPath .githooks
+sed -i.bak -e '/^Co-Authored-By:/d' -e '/Generated with \[Claude Code\]/d' "$1"
+rm -f "$1.bak"

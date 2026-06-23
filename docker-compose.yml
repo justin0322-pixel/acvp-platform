@@ -1,0 +1,33 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - JWT_SECRET=change-me-dev-only
+      - DEMO_PASSWORD=acvp-demo
+      - FIXTURES_DIR_OVERRIDE=/fixtures
+    volumes:
+      - ./tests/fixtures/nist:/fixtures:ro   # golden vectors, read-only
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE=http://localhost:8000/acvp/v1
+    depends_on:
+      - backend
+
+  # Deployment task queue (the prototype runs jobs in-process, so this is optional):
+  # redis:
+  #   image: redis:7-alpine
+  # worker:
+  #   build: ./backend
+  #   command: arq app.workers.tasks.WorkerSettings
+  #   environment:
+  #     - FIXTURES_DIR_OVERRIDE=/fixtures
+  #   volumes:
+  #     - ./tests/fixtures/nist:/fixtures:ro
+  #   depends_on:
+  #     - redis

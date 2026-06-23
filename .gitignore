@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env / secrets — never commit real values
+.env
+.env.local
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code personal (not shared) settings
+.claude/settings.local.json
+
+# NOTE on NIST fixtures (tests/fixtures/nist/ML-*):
+# By default they ARE committed (self-contained, reproducible repo). If you prefer
+# a lean repo, uncomment the next line and rely on scripts/fetch-nist-fixtures.sh +
+# SOURCE.md to restore the exact pinned vectors.
+# tests/fixtures/nist/ML-*/

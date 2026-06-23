@@ -1,0 +1,61 @@
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+
+from app.core.auth import current_subject
+from app.core.jobs import submit
+from app.crypto_boundary import client
+from app.models.envelope import wrap, unwrap
+from app.store import store
+
+router = APIRouter()
+
+
+def _session_or_404(session_id: int):
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
+    return session
+
+
+@router.get("/testSessions/{session_id}/vectorSets/{vs_id}")
+def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
+    session = _session_or_404(session_id)
+    vs = store.get_vector_set(session, vs_id)
+    if vs is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
+    if vs.status == "expired":
+        return wrap({"vsId": vs.vs_id, "status": "expired"})
+    prompt = client.generate(vs.mode_folder)  # stub: NIST golden prompt
+    vs.status = "prompt_retrieved"
+    return wrap(prompt)
+
+
+@router.post("/testSessions/{session_id}/vectorSets/{vs_id}/results")
+def submit_results(
+    session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
+) -> list:
+    session = _session_or_404(session_id)
+    vs = store.get_vector_set(session, vs_id)
+    if vs is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
+    response = unwrap(body)
+    vs.response = response
+    vs.status = "response_submitted"
+
+    async def _run(rid: int) -> None:
+        vs.validation = client.validate(vs.mode_folder, response)  # stub
+        vs.status = "disposition"
+        store.complete_request(
+            rid, f"/acvp/v1/testSessions/{session_id}/vectorSets/{vs_id}/results"
+        )
+
+    rid = submit(_run)
+    return wrap({"url": f"/acvp/v1/requests/{rid}"})
+
+
+@router.get("/testSessions/{session_id}/vectorSets/{vs_id}/results")
+def get_results(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
+    session = _session_or_404(session_id)
+    vs = store.get_vector_set(session, vs_id)
+    if vs is None or vs.validation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "results not ready")
+    return wrap(vs.validation)
