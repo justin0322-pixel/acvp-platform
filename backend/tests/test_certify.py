@@ -90,5 +90,11 @@ def test_certify_unknown_session_404(client, acv_version, auth_header):
 
 
 def test_modules_and_oes_stubs(client, auth_header):
-    assert client.get("/acvp/v1/modules", headers=auth_header).json()[1] == {"data": []}
-    assert client.get("/acvp/v1/oes", headers=auth_header).json()[1] == {"data": []}
+    # Spec: listings MUST be a paged response (totalCount/incomplete/links/data).
+    for resource in ("modules", "oes"):
+        payload = client.get(f"/acvp/v1/{resource}", headers=auth_header).json()[1]
+        assert set(payload.keys()) == {"totalCount", "incomplete", "links", "data"}
+        assert payload["totalCount"] == 0
+        assert payload["incomplete"] is False
+        assert payload["data"] == []
+        assert set(payload["links"].keys()) == {"first", "next", "prev", "last"}
