@@ -34,7 +34,9 @@ def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject
         return wrap({"vsId": vs.vs_id, "retry": RETRY_SECONDS})
     if vs.status == "ready":
         vs.status = "prompt_retrieved"
-    return wrap(vs.prompt)
+    # Stamp our resource id so it matches the URL (the stub fixture carries its
+    # own vsId, which must not leak; the real module is given the vsId to echo).
+    return wrap({**vs.prompt, "vsId": vs.vs_id})
 
 
 @router.post("/testSessions/{session_id}/vectorSets/{vs_id}/results")
@@ -70,7 +72,7 @@ def get_results(session_id: int, vs_id: int, _: str = Depends(current_subject)) 
     # far processing has got. The payload is wrapped in a "results" object.
     base = vs.validation if vs.validation is not None else {}
     results = {
-        "vsId": base.get("vsId", vs.vs_id),
+        "vsId": vs.vs_id,  # our resource id, not the stub fixture's baked-in vsId
         "disposition": vs.disposition(),
         "tests": base.get("tests", []),
     }

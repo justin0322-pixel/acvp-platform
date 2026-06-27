@@ -92,6 +92,24 @@ def test_disposition_fail_passthrough(client, acv_version, auth_header):
 
 # --- per-vectorSet results response format (spec: wrapped in "results") ---------
 
+def test_vsid_is_consistent_with_resource_id(client, acv_version, auth_header):
+    # The vsId in the prompt and in the results must equal the URL's resource id,
+    # so a client can correlate them (the stub fixture's baked-in vsId must not leak).
+    sid, vs_url = _register(client, acv_version, auth_header)
+    url_id = int(vs_url.rsplit("/", 1)[1])
+
+    for _ in range(50):
+        prompt = client.get(vs_url, headers=auth_header).json()[1]
+        if "retry" not in prompt:
+            break
+        time.sleep(0.02)
+    assert prompt["vsId"] == url_id
+
+    _drive_to_passed(client, acv_version, auth_header, vs_url)
+    results = client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]
+    assert results["vsId"] == url_id
+
+
 def test_vectorset_results_spec_envelope(client, acv_version, auth_header):
     sid, vs_url = _register(client, acv_version, auth_header)
     _drive_to_passed(client, acv_version, auth_header, vs_url)
