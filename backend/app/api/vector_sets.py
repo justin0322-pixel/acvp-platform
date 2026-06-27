@@ -20,6 +20,20 @@ def _session_or_404(session_id: int):
     return session
 
 
+@router.get("/testSessions/{session_id}/vectorSets")
+def list_vector_sets(session_id: int, _: str = Depends(current_subject)) -> list:
+    """List the session's vector sets. Spec: {"vectorSetUrls": [...]} only."""
+    session = _session_or_404(session_id)
+    return wrap(
+        {
+            "vectorSetUrls": [
+                f"/acvp/v1/testSessions/{session_id}/vectorSets/{vs.vs_id}"
+                for vs in session.vector_sets
+            ]
+        }
+    )
+
+
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}")
 def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
     session = _session_or_404(session_id)
