@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from app.core.auth import create_access_token, current_subject
 from app.core.config import get_settings
-from app.core.jobs import run_background
+from app.core.jobs import run_background, submit
 from app.crypto_boundary import client
 from app.models.envelope import wrap, unwrap
 from app.store import VectorSet, store
@@ -47,6 +47,11 @@ def _session_passed(session) -> bool:
     )
 
 
+def _session_publishable(session) -> bool:
+    """A session can be certified once it has passed; sample runs never can."""
+    return _session_passed(session) and not session.is_sample
+
+
 def _session_base(session) -> dict:
     """Fields common to the POST and GET test-session objects."""
     return {
@@ -55,7 +60,7 @@ def _session_base(session) -> dict:
         "createdOn": session.created_on,
         "expiresOn": session.expires_on,
         "encryptAtRest": session.encrypt_at_rest,
-        "publishable": session.publishable,
+        "publishable": _session_publishable(session),
         "passed": _session_passed(session),
         "isSample": session.is_sample,
     }
@@ -104,6 +109,34 @@ def get_test_session(session_id: int, _: str = Depends(current_subject)) -> list
             "vectorSetsUrl": f"/acvp/v1/testSessions/{session_id}/vectorSets",
         }
     )
+
+
+@router.put("/testSessions/{session_id}")
+def certify_test_session(
+    session_id: int, body: list = Body(...), _: str = Depends(current_subject)
+) -> list:
+    """Certify (submit for validation) a test session.
+
+    [HUMAN REVIEW] Authorization gate: the session MUST be both publishable and
+    passed (spec). Returns a request object; once approved, GET /requests/{id}
+    yields the validation resource as approvedUrl. The crypto/validation
+    authority approval is stubbed here as an immediate approval.
+    """
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
+    unwrap(body)  # validate envelope (moduleUrl/oeUrl recorded by a real authority)
+    if not (_session_passed(session) and _session_publishable(session)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "test session must be publishable and passed before certification",
+        )
+
+    async def _run(rid: int) -> None:
+        store.complete_request(rid, f"/acvp/v1/validations/{rid}")
+
+    rid = submit(_run)
+    return wrap({"url": f"/acvp/v1/requests/{rid}", "status": "processing"})
 
 
 @router.get("/testSessions/{session_id}/results")
