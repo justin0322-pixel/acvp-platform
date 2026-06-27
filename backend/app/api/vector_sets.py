@@ -39,6 +39,27 @@ def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject
     return wrap({**vs.prompt, "vsId": vs.vs_id})
 
 
+@router.get("/testSessions/{session_id}/vectorSets/{vs_id}/expected")
+def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
+    """Return the sample answer key. [HUMAN REVIEW] disclosure gate.
+
+    Only available when the session was registered with isSample=true; otherwise
+    the answer key must never be disclosed (403). Spec is silent on the denial
+    code; 403 signals the resource exists but is gated for non-sample sessions.
+    """
+    session = _session_or_404(session_id)
+    vs = store.get_vector_set(session, vs_id)
+    if vs is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
+    if not session.is_sample:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "expected results are only available for sample sessions"
+        )
+    expected = client.expected(vs.mode_folder)  # stub: NIST golden answer key
+    # Stamp our resource id so the vsId matches the URL (see get_vector_set).
+    return wrap({**expected, "vsId": vs.vs_id})
+
+
 @router.post("/testSessions/{session_id}/vectorSets/{vs_id}/results")
 def submit_results(
     session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)

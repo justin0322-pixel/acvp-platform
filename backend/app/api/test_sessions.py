@@ -36,6 +36,7 @@ def _start_generation(vs: VectorSet) -> None:
 def create_test_session(body: list = Body(...), _: str = Depends(current_subject)) -> list:
     payload = unwrap(body)
     session = store.create_session()
+    session.is_sample = bool(payload.get("isSample", False))
     for algo in payload.get("algorithms", []):
         key = (algo.get("algorithm"), algo.get("mode"), algo.get("revision"))
         folder = _MODE_FOLDER.get(key)
@@ -64,6 +65,7 @@ def get_test_session(session_id: int, _: str = Depends(current_subject)) -> list
             "url": f"/acvp/v1/testSessions/{session_id}",
             "vectorSetsUrl": f"/acvp/v1/testSessions/{session_id}/vectorSets",
             "passed": session.passed,
+            "isSample": session.is_sample,
         }
     )
 

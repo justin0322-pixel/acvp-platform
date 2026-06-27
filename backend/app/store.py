@@ -40,6 +40,7 @@ class TestSession:
     session_id: int
     vector_sets: list[VectorSet] = field(default_factory=list)
     passed: bool | None = None
+    is_sample: bool = False
 
 
 class Store:

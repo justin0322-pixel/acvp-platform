@@ -40,3 +40,13 @@ def validate(mode_folder: str, response: dict) -> dict:
     compute per-test-case pass/fail.
     """
     return _fixture(mode_folder, "validation.json")
+
+
+def expected(mode_folder: str) -> dict:
+    """STUB: return the NIST golden expected results (sample mode answer key).
+
+    Real implementation: the 203/204 module emits expected values alongside the
+    prompt when generating a sample vector set. Disclosed only for isSample
+    sessions; the caller MUST enforce that gate.
+    """
+    return _fixture(mode_folder, "expectedResults.json")
