@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-dev-only"
     jwt_alg: str = "HS256"
     jwt_expire_seconds: int = 1800
+    session_expire_seconds: int = 30 * 24 * 3600  # test sessions live ~30 days
     demo_password: str = "acvp-demo"
 
     # Set FIXTURES_DIR_OVERRIDE to point at the golden vectors explicitly

@@ -42,6 +42,11 @@ class TestSession:
     vector_sets: list[VectorSet] = field(default_factory=list)
     passed: bool | None = None
     is_sample: bool = False
+    encrypt_at_rest: bool = False
+    publishable: bool = False
+    created_on: str | None = None
+    expires_on: str | None = None
+    access_token: str | None = None
 
 
 class Store:
