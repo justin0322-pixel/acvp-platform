@@ -57,3 +57,15 @@ def test_session_echoes_is_sample(client, acv_version, auth_header):
                        algo="ML-KEM", mode="encapDecap", is_sample=True)
     payload = client.get(f"/acvp/v1/testSessions/{sid}", headers=auth_header).json()[1]
     assert payload["isSample"] is True
+
+
+def test_registration_response_echoes_is_sample(client, acv_version, auth_header):
+    # The created-session object returned by POST must agree with GET on isSample.
+    r = client.post(
+        "/acvp/v1/testSessions",
+        json=[{"acvVersion": acv_version},
+              {"algorithms": [{"algorithm": "ML-KEM", "mode": "encapDecap", "revision": "FIPS203"}],
+               "isSample": True}],
+        headers=auth_header,
+    )
+    assert r.json()[1]["isSample"] is True

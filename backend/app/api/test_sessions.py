@@ -47,6 +47,7 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
     return wrap(
         {
             "url": f"/acvp/v1/testSessions/{session.session_id}",
+            "isSample": session.is_sample,
             "vectorSetUrls": [
                 f"/acvp/v1/testSessions/{session.session_id}/vectorSets/{v.vs_id}"
                 for v in session.vector_sets
