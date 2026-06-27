@@ -9,8 +9,8 @@ from app.store import store
 router = APIRouter()
 
 # Seconds the client should wait before re-requesting a not-yet-ready vectorSet.
-# Mirrors the retry convention used by the request-retry endpoint (requests.py).
-RETRY_SECONDS = 2
+# Server-determined per the spec; 30 matches the spec's messaging example.
+RETRY_SECONDS = 30
 
 
 def _session_or_404(session_id: int):
