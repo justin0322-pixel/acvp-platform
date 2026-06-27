@@ -64,6 +64,14 @@ def submit_results(
 def get_results(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
-    if vs is None or vs.validation is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "results not ready")
-    return wrap(vs.validation)
+    if vs is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
+    # Spec: results may be requested at any time; the disposition reflects how
+    # far processing has got. The payload is wrapped in a "results" object.
+    base = vs.validation if vs.validation is not None else {}
+    results = {
+        "vsId": base.get("vsId", vs.vs_id),
+        "disposition": vs.disposition(),
+        "tests": base.get("tests", []),
+    }
+    return wrap({"results": results})

@@ -1,0 +1,116 @@
+"""Increment 2: spec-faithful disposition vocabulary + response formats.
+
+Disposition values (ACVP messaging spec): fail / unreceived / incomplete /
+expired / passed / missing / error. We synthesize unreceived/incomplete/
+expired/error from lifecycle state; passed/fail come through from the crypto
+module's validation verbatim.
+"""
+import time
+
+import pytest
+
+from app.core.config import get_settings
+from app.store import store
+
+_FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
+
+pytestmark = pytest.mark.skipif(
+    not _FIXTURE.exists(),
+    reason="NIST fixtures not vendored; run scripts/fetch-nist-fixtures.sh",
+)
+
+
+def _register(client, v, auth_header):
+    reg = [{"acvVersion": v}, {"algorithms": [
+        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+    ]}]
+    r = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header)
+    assert r.status_code == 200
+    body = r.json()[1]
+    return int(body["url"].rsplit("/", 1)[1]), body["vectorSetUrls"][0]
+
+
+def _vs(session_id, vs_url):
+    return store.get_vector_set(store.get_session(session_id), int(vs_url.rsplit("/", 1)[1]))
+
+
+def _drive_to_passed(client, v, auth_header, vs_url):
+    for _ in range(50):
+        if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
+            break
+        time.sleep(0.02)
+    r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    req_url = r.json()[1]["url"]
+    for _ in range(50):
+        if client.get(req_url, headers=auth_header).json()[1]["status"] != "processing":
+            break
+        time.sleep(0.02)
+
+
+# --- per-vectorSet disposition state derivation ---------------------------------
+
+def test_disposition_unreceived_before_response(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    payload = client.get(vs_url + "/results", headers=auth_header).json()[1]
+    assert payload["results"]["disposition"] == "unreceived"
+    assert payload["results"]["tests"] == []
+
+
+def test_disposition_incomplete_while_validating(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    vs = _vs(sid, vs_url)
+    vs.status = "response_submitted"
+    vs.validation = None
+    payload = client.get(vs_url + "/results", headers=auth_header).json()[1]
+    assert payload["results"]["disposition"] == "incomplete"
+
+
+def test_disposition_expired(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    vs = _vs(sid, vs_url)
+    vs.status = "expired"
+    payload = client.get(vs_url + "/results", headers=auth_header).json()[1]
+    assert payload["results"]["disposition"] == "expired"
+
+
+def test_disposition_passed(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    _drive_to_passed(client, acv_version, auth_header, vs_url)
+    payload = client.get(vs_url + "/results", headers=auth_header).json()[1]
+    assert payload["results"]["disposition"] == "passed"
+
+
+def test_disposition_fail_passthrough(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    vs = _vs(sid, vs_url)
+    # Crypto module reported a failure: server passes the disposition through verbatim.
+    vs.validation = {"vsId": vs.vs_id, "disposition": "fail",
+                     "tests": [{"tcId": 1, "result": "fail"}]}
+    payload = client.get(vs_url + "/results", headers=auth_header).json()[1]
+    assert payload["results"]["disposition"] == "fail"
+
+
+# --- per-vectorSet results response format (spec: wrapped in "results") ---------
+
+def test_vectorset_results_spec_envelope(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    _drive_to_passed(client, acv_version, auth_header, vs_url)
+    body = client.get(vs_url + "/results", headers=auth_header).json()
+    assert body[0]["acvVersion"] == acv_version
+    results = body[1]["results"]
+    assert set(results.keys()) >= {"vsId", "disposition", "tests"}
+    assert isinstance(results["tests"], list)
+
+
+# --- session-level summary format (spec: passed + results[], NO top-level status) -
+
+def test_session_results_shape_is_spec_exact(client, acv_version, auth_header):
+    sid, vs_url = _register(client, acv_version, auth_header)
+    session_url = "/acvp/v1/testSessions/%d" % sid
+    payload = client.get(session_url + "/results", headers=auth_header).json()[1]
+    assert set(payload.keys()) == {"passed", "results"}  # no extra top-level status
+    for entry in payload["results"]:
+        assert set(entry.keys()) == {"vectorSetUrl", "status"}
+    # before any response: not passed, vectorSet unreceived
+    assert payload["passed"] is False
+    assert payload["results"][0]["status"] == "unreceived"

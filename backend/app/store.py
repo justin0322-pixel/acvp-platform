@@ -19,6 +19,21 @@ class VectorSet:
     response: dict | None = None
     validation: dict | None = None
 
+    def disposition(self) -> str:
+        """Map lifecycle state to an ACVP disposition value.
+
+        Spec values: passed / fail / incomplete / unreceived / missing /
+        expired / error. We synthesize unreceived/incomplete/expired/error from
+        state; passed/fail come through from the crypto module's validation.
+        """
+        if self.status == "expired":
+            return "expired"
+        if self.validation is not None:
+            return self.validation.get("disposition", "error")
+        if self.status == "response_submitted":
+            return "incomplete"  # responses received, validation in progress
+        return "unreceived"      # no responses received yet
+
 
 @dataclass
 class TestSession:

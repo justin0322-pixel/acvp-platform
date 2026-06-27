@@ -22,19 +22,19 @@ def _create_session(client, v, auth_header):
     return body["url"], body["vectorSetUrls"][0]
 
 
-def test_session_results_incomplete_before_submission(client, acv_version, auth_header):
+def test_session_results_unreceived_before_submission(client, acv_version, auth_header):
     session_url, vs_url = _create_session(client, acv_version, auth_header)
 
     r = client.get(session_url + "/results", headers=auth_header)
     assert r.status_code == 200
     summary = r.json()[1]
 
-    # No answers submitted yet: session not passed, vectorSet is incomplete.
+    # No answers received yet: session not passed; spec disposition is "unreceived".
     assert summary["passed"] is False
     assert len(summary["results"]) == 1
     entry = summary["results"][0]
     assert entry["vectorSetUrl"] == vs_url
-    assert entry["status"] == "incomplete"
+    assert entry["status"] == "unreceived"
 
 
 def test_session_results_passed_after_submission(client, acv_version, auth_header):
