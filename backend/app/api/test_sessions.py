@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from app.core.auth import current_subject
+from app.core.jobs import run_background
+from app.crypto_boundary import client
 from app.models.envelope import wrap, unwrap
-from app.store import store
+from app.store import VectorSet, store
 
 router = APIRouter()
 
@@ -16,6 +18,20 @@ _MODE_FOLDER = {
 }
 
 
+def _start_generation(vs: VectorSet) -> None:
+    """Kick off vector generation in the background.
+
+    The crypto module (stubbed by NIST fixtures) generates the prompt; until it
+    lands the vectorSet GET returns a `retry` signal. See app/core/jobs.py.
+    """
+
+    async def _gen() -> None:
+        vs.prompt = client.generate(vs.mode_folder)  # stub: NIST golden prompt
+        vs.status = "ready"
+
+    run_background(_gen)
+
+
 @router.post("/testSessions")
 def create_test_session(body: list = Body(...), _: str = Depends(current_subject)) -> list:
     payload = unwrap(body)
@@ -25,7 +41,8 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
         folder = _MODE_FOLDER.get(key)
         if folder is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unsupported algorithm: {key}")
-        store.add_vector_set(session, folder)
+        vs = store.add_vector_set(session, folder)
+        _start_generation(vs)
     return wrap(
         {
             "url": f"/acvp/v1/testSessions/{session.session_id}",

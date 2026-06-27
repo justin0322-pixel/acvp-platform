@@ -8,6 +8,10 @@ from app.store import store
 
 router = APIRouter()
 
+# Seconds the client should wait before re-requesting a not-yet-ready vectorSet.
+# Mirrors the retry convention used by the request-retry endpoint (requests.py).
+RETRY_SECONDS = 2
+
 
 def _session_or_404(session_id: int):
     session = store.get_session(session_id)
@@ -24,9 +28,13 @@ def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
     if vs.status == "expired":
         return wrap({"vsId": vs.vs_id, "status": "expired"})
-    prompt = client.generate(vs.mode_folder)  # stub: NIST golden prompt
-    vs.status = "prompt_retrieved"
-    return wrap(prompt)
+    if vs.status == "generating" or vs.prompt is None:
+        # Vectors not ready yet: tell the client to poll again (a separate
+        # polling point from the results poll). See store.VectorSet lifecycle.
+        return wrap({"vsId": vs.vs_id, "retry": RETRY_SECONDS})
+    if vs.status == "ready":
+        vs.status = "prompt_retrieved"
+    return wrap(vs.prompt)
 
 
 @router.post("/testSessions/{session_id}/vectorSets/{vs_id}/results")

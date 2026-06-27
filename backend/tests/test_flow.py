@@ -22,7 +22,12 @@ def test_full_stub_flow(client, acv_version, auth_header):
     assert r.status_code == 200
     vs_url = r.json()[1]["vectorSetUrls"][0]
 
-    prompt = client.get(vs_url, headers=auth_header).json()[1]
+    prompt = {"retry": 1}
+    for _ in range(50):
+        prompt = client.get(vs_url, headers=auth_header).json()[1]
+        if "retry" not in prompt:
+            break
+        time.sleep(0.02)
     assert prompt["algorithm"] == "ML-KEM"
 
     r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)

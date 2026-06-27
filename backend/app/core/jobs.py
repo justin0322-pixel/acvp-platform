@@ -13,7 +13,10 @@ from app.store import store
 
 
 def submit(work: Callable[[int], Awaitable[None]]) -> int:
-    """Register a request and run `work(request_id)` in the background."""
+    """Register a request and run `work(request_id)` in the background.
+
+    For work polled via `GET /requests/{id}` (e.g. response validation).
+    """
     rid = store.new_request()
 
     def runner() -> None:
@@ -21,3 +24,17 @@ def submit(work: Callable[[int], Awaitable[None]]) -> int:
 
     threading.Thread(target=runner, daemon=True).start()
     return rid
+
+
+def run_background(work: Callable[[], Awaitable[None]]) -> None:
+    """Run `work()` in the background without a request handle.
+
+    For vector-set generation, which the client polls via the vectorSet GET
+    (the `retry` response) rather than via the request-retry endpoint — these
+    are two distinct polling points in the spec.
+    """
+
+    def runner() -> None:
+        asyncio.run(work())
+
+    threading.Thread(target=runner, daemon=True).start()

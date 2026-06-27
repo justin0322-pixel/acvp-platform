@@ -41,8 +41,11 @@ def test_session_results_passed_after_submission(client, acv_version, auth_heade
     v = acv_version
     session_url, vs_url = _create_session(client, v, auth_header)
 
-    # Retrieve prompt, then submit a response.
-    client.get(vs_url, headers=auth_header)
+    # Retrieve prompt (polling past any retry), then submit a response.
+    for _ in range(50):
+        if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
+            break
+        time.sleep(0.02)
     r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
     req_url = r.json()[1]["url"]
 

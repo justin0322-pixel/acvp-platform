@@ -12,7 +12,10 @@ from typing import Any
 class VectorSet:
     vs_id: int
     mode_folder: str          # e.g. "ML-KEM-keyGen-FIPS203"
-    status: str = "created"   # created|prompt_retrieved|response_submitted|disposition|certified|expired
+    # generating: vectors not ready yet (GET returns retry) -> ready: prompt available ->
+    # prompt_retrieved -> response_submitted -> disposition -> certified; expired is terminal.
+    status: str = "generating"
+    prompt: dict | None = None
     response: dict | None = None
     validation: dict | None = None
 
