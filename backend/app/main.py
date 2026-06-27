@@ -1,8 +1,27 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import algorithms, login, requests, test_sessions, vector_sets
 
 app = FastAPI(title="ACVP server (server-client layer)", version="0.1.0")
+
+
+# ACVP errors carry an "error" field describing the problem (spec Appendix B),
+# not FastAPI's default "detail". Render all errors in that shape.
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"error": "incorrectly formatted request body"},
+    )
+
 
 API_PREFIX = "/acvp/v1"
 
