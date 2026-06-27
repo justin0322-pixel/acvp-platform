@@ -18,6 +18,7 @@ class VectorSet:
     prompt: dict | None = None
     response: dict | None = None
     validation: dict | None = None
+    resubmit_count: int = 0
 
     def disposition(self) -> str:
         """Map lifecycle state to an ACVP disposition value.

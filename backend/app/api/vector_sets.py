@@ -60,14 +60,8 @@ def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject))
     return wrap({**expected, "vsId": vs.vs_id})
 
 
-@router.post(
-    "/testSessions/{session_id}/vectorSets/{vs_id}/results",
-    status_code=status.HTTP_200_OK,
-)
-def submit_results(
-    session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
-) -> Response:
-    """Accept a client's responses for validation.
+def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) -> Response:
+    """Shared POST/PUT results handling.
 
     Spec: the response carries NO content and NO disposition -- only the HTTP
     status signals submission success. ACVP uses 200 as its success code and
@@ -79,9 +73,16 @@ def submit_results(
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
+    if vs.status == "expired":
+        # Spec: (re)submission MUST occur prior to expiry.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "vector set has expired")
+
     response = unwrap(body)
     vs.response = response
+    vs.validation = None  # clear any prior disposition while we re-validate
     vs.status = "response_submitted"
+    if resubmit:
+        vs.resubmit_count += 1
 
     async def _run() -> None:
         vs.validation = client.validate(vs.mode_folder, response)  # stub
@@ -89,6 +90,28 @@ def submit_results(
 
     run_background(_run)
     return Response(status_code=status.HTTP_200_OK)
+
+
+@router.post(
+    "/testSessions/{session_id}/vectorSets/{vs_id}/results",
+    status_code=status.HTTP_200_OK,
+)
+def submit_results(
+    session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
+) -> Response:
+    """Initial submission of a vector set's responses."""
+    return _accept_results(session_id, vs_id, body, resubmit=False)
+
+
+@router.put(
+    "/testSessions/{session_id}/vectorSets/{vs_id}/results",
+    status_code=status.HTTP_200_OK,
+)
+def resubmit_results(
+    session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
+) -> Response:
+    """Resubmit an entire vector set after a failure (spec: identical to POST)."""
+    return _accept_results(session_id, vs_id, body, resubmit=True)
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}/results")
