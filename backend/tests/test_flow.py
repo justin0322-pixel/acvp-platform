@@ -32,7 +32,7 @@ def test_full_stub_flow(client, acv_version, auth_header):
 
     # Submit responses: no content, no score (disposition is pulled separately).
     r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
-    assert r.status_code == 202 and r.content == b""
+    assert r.status_code == 200 and r.content == b""
 
     # Pull the disposition from the results endpoint until validation lands.
     disposition = None

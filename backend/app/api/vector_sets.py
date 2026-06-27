@@ -62,7 +62,7 @@ def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject))
 
 @router.post(
     "/testSessions/{session_id}/vectorSets/{vs_id}/results",
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_200_OK,
 )
 def submit_results(
     session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
@@ -70,9 +70,10 @@ def submit_results(
     """Accept a client's responses for validation.
 
     Spec: the response carries NO content and NO disposition -- only the HTTP
-    status signals submission success. Validation runs server-side; the client
-    pulls the disposition from GET .../results (the request-retry endpoint is
-    not used for result submissions).
+    status signals submission success. ACVP uses 200 as its success code and
+    signals "still processing" at the application layer, so this returns an
+    empty 200. Validation runs server-side; the client pulls the disposition
+    from GET .../results (the request-retry endpoint is not used here).
     """
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
@@ -87,7 +88,7 @@ def submit_results(
         vs.status = "disposition"
 
     run_background(_run)
-    return Response(status_code=status.HTTP_202_ACCEPTED)
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}/results")

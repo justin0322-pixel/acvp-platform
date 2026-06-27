@@ -35,8 +35,10 @@ def test_post_results_is_no_content_no_score(client, acv_version, auth_header):
     r = client.post(vs_url + "/results",
                     json=[{"acvVersion": acv_version}, {"results": []}], headers=auth_header)
 
-    # Accepted for processing, empty body, no disposition/score/url leaked.
-    assert r.status_code == 202
+    # Success with empty body, no disposition/score/url leaked. ACVP signals
+    # "still processing" at the application layer (GET .../results disposition),
+    # never via the HTTP status, and uses 200 as its success code throughout.
+    assert r.status_code == 200
     assert r.content == b""
     assert "disposition" not in r.text and "passed" not in r.text and "url" not in r.text
 
