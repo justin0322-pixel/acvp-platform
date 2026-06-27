@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 
 from app.core.auth import current_subject
-from app.core.jobs import submit
+from app.core.jobs import run_background
 from app.crypto_boundary import client
 from app.models.envelope import wrap, unwrap
 from app.store import store
@@ -60,10 +60,20 @@ def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject))
     return wrap({**expected, "vsId": vs.vs_id})
 
 
-@router.post("/testSessions/{session_id}/vectorSets/{vs_id}/results")
+@router.post(
+    "/testSessions/{session_id}/vectorSets/{vs_id}/results",
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def submit_results(
     session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
-) -> list:
+) -> Response:
+    """Accept a client's responses for validation.
+
+    Spec: the response carries NO content and NO disposition -- only the HTTP
+    status signals submission success. Validation runs server-side; the client
+    pulls the disposition from GET .../results (the request-retry endpoint is
+    not used for result submissions).
+    """
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
@@ -72,15 +82,12 @@ def submit_results(
     vs.response = response
     vs.status = "response_submitted"
 
-    async def _run(rid: int) -> None:
+    async def _run() -> None:
         vs.validation = client.validate(vs.mode_folder, response)  # stub
         vs.status = "disposition"
-        store.complete_request(
-            rid, f"/acvp/v1/testSessions/{session_id}/vectorSets/{vs_id}/results"
-        )
 
-    rid = submit(_run)
-    return wrap({"url": f"/acvp/v1/requests/{rid}"})
+    run_background(_run)
+    return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}/results")

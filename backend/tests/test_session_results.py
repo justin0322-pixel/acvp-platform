@@ -46,14 +46,13 @@ def test_session_results_passed_after_submission(client, acv_version, auth_heade
         if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
             break
         time.sleep(0.02)
-    r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
-    req_url = r.json()[1]["url"]
+    client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
 
-    # Wait for the async validation to land.
-    for _ in range(40):
-        if client.get(req_url, headers=auth_header).json()[1]["status"] != "processing":
+    # Wait for the async validation to land (pulled via the results endpoint).
+    for _ in range(50):
+        if client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]["disposition"] == "passed":
             break
-        time.sleep(0.05)
+        time.sleep(0.02)
 
     r = client.get(session_url + "/results", headers=auth_header)
     assert r.status_code == 200

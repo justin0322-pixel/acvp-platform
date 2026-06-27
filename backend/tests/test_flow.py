@@ -30,15 +30,15 @@ def test_full_stub_flow(client, acv_version, auth_header):
         time.sleep(0.02)
     assert prompt["algorithm"] == "ML-KEM"
 
+    # Submit responses: no content, no score (disposition is pulled separately).
     r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
-    req_url = r.json()[1]["url"]
+    assert r.status_code == 202 and r.content == b""
 
-    body = {"status": "processing"}
-    for _ in range(20):
-        body = client.get(req_url, headers=auth_header).json()[1]
-        if body["status"] != "processing":
+    # Pull the disposition from the results endpoint until validation lands.
+    disposition = None
+    for _ in range(50):
+        disposition = client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]["disposition"]
+        if disposition == "passed":
             break
-        time.sleep(0.05)
-    assert body["status"] == "approved"
-
-    assert client.get(vs_url + "/results", headers=auth_header).status_code == 200
+        time.sleep(0.02)
+    assert disposition == "passed"

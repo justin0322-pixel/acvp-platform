@@ -39,10 +39,9 @@ def _drive_to_passed(client, v, auth_header, vs_url):
         if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
             break
         time.sleep(0.02)
-    r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
-    req_url = r.json()[1]["url"]
+    client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
     for _ in range(50):
-        if client.get(req_url, headers=auth_header).json()[1]["status"] != "processing":
+        if client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]["disposition"] == "passed":
             break
         time.sleep(0.02)
 
