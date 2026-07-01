@@ -22,11 +22,6 @@ _MODE_FOLDER = {
 
 
 def _start_generation(vs: VectorSet) -> None:
-    """Kick off vector generation in the background.
-
-    The crypto module (stubbed by NIST fixtures) generates the prompt; until it
-    lands the vectorSet GET returns a `retry` signal. See app/core/jobs.py.
-    """
 
     async def _gen() -> None:
         vs.prompt = client.generate(vs.mode_folder)  # stub: NIST golden prompt
@@ -115,13 +110,7 @@ def get_test_session(session_id: int, _: str = Depends(current_subject)) -> list
 def certify_test_session(
     session_id: int, body: list = Body(...), _: str = Depends(current_subject)
 ) -> list:
-    """Certify (submit for validation) a test session.
 
-    [HUMAN REVIEW] Authorization gate: the session MUST be both publishable and
-    passed (spec). Returns a request object; once approved, GET /requests/{id}
-    yields the validation resource as approvedUrl. The crypto/validation
-    authority approval is stubbed here as an immediate approval.
-    """
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
@@ -141,11 +130,7 @@ def certify_test_session(
 
 @router.get("/testSessions/{session_id}/results")
 def get_session_results(session_id: int, _: str = Depends(current_subject)) -> list:
-    """Session-level disposition summary across every vectorSet.
 
-    `passed` is true only when every vectorSet has passed; per-vectorSet status
-    uses the disposition vocabulary so the client can show more than pass/fail.
-    """
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")

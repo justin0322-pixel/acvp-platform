@@ -48,19 +48,12 @@ def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject
         return wrap({"vsId": vs.vs_id, "retry": RETRY_SECONDS})
     if vs.status == "ready":
         vs.status = "prompt_retrieved"
-    # Stamp our resource id so it matches the URL (the stub fixture carries its
-    # own vsId, which must not leak; the real module is given the vsId to echo).
     return wrap({**vs.prompt, "vsId": vs.vs_id})
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}/expected")
 def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
-    """Return the sample answer key. [HUMAN REVIEW] disclosure gate.
 
-    Only available when the session was registered with isSample=true; otherwise
-    the answer key must never be disclosed (403). Spec is silent on the denial
-    code; 403 signals the resource exists but is gated for non-sample sessions.
-    """
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
@@ -75,14 +68,7 @@ def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject))
 
 
 def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) -> Response:
-    """Shared POST/PUT results handling.
 
-    Spec: the response carries NO content and NO disposition -- only the HTTP
-    status signals submission success. ACVP uses 200 as its success code and
-    signals "still processing" at the application layer, so this returns an
-    empty 200. Validation runs server-side; the client pulls the disposition
-    from GET .../results (the request-retry endpoint is not used here).
-    """
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
