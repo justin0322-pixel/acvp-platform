@@ -31,13 +31,3 @@ docker compose up --build
 ```
 
 Demo login password is `acvp-demo` (see `backend/.env.example`).
-
-## Keeping contributors human-only
-
-This repo is configured so AI tooling does not appear in git attribution:
-- `.claude/settings.json` blanks Claude Code's commit/PR attribution.
-- `.githooks/commit-msg` strips any `Co-Authored-By` trailer as a backstop. Enable it once:
-  ```bash
-  git config core.hooksPath .githooks
-  ```
-- Commit under your own git identity (`git config user.name` / `user.email`).
