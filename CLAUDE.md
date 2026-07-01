@@ -104,13 +104,38 @@ docker compose up --build
   line is the version-independent backstop. Enable the hook once: `git config core.hooksPath .githooks`.)
 - Conventional commits, one cohesive unit per commit.
 
+## Current focus (2026/06 — read this)
+
+**Priority for this phase:** build the complete ACVP protocol flow to be spec-faithful, with the
+crypto behind a clean plug-in seam, so the FIPS 203/204 gen-val modules can be connected later and
+the whole flow runs. This takes precedence over the original sprint ordering. The authoritative
+directive — the exact message flow, the disposition states, the retry behavior, and the
+build-now checklist — is the **`★ 本階段優先指令`** section at the top of `docs/dev-process.md`.
+Read it before implementing protocol endpoints.
+
+Role mapping to keep straight: **the server (us) sets the exam and grades it** (generates vectors,
+holds expected answers, validates submissions); the **client/DUT computes answers**. The 203/204
+gen-val plugs into the server-side `app/crypto_boundary/`. NIST fixtures stand in for it now, so the
+full flow already runs end-to-end.
+
+Three things the spec requires that are easy to get wrong: results are **pulled by the client, not
+pushed**; submitting results returns **HTTP status only (no score)** — the disposition comes from a
+separate GET; and **retrieving vectors is also async** (server may reply `{vsId, retry:N}`), a
+separate polling point from the results poll.
+
 ## Current status / open dependencies
 
-- The FIPS 203/204 teams' implementation **language is not yet decided**. This does NOT block us:
-  the crypto boundary is a JSON-in / JSON-out process call, so their language is transparent. Build
-  against the NIST fixtures as stubs — B0–B4 in the sprint plan need no crypto-team input.
-- The generate/validate JSON contract (sprint task I0) is the first cross-team deliverable; the
-  fixtures' schema IS that contract. See `docs/dev-process.md`.
+- **ML-KEM (FIPS 203) language is confirmed: C#/.NET 10** (in-box `System.Security.Cryptography.MLKem`).
+  ⚠️ ML-KEM is **not supported on macOS** — their module runs on Linux/Docker. No impact on us (still a
+  JSON process boundary), but the integration test environment needs Docker.
+- **ML-DSA (FIPS 204) language: not yet decided** (.NET's ML-DSA is still experimental). Still does not
+  block us — same JSON boundary.
+- **Boundary mechanism is aligned**: 203/204 expose a CLI that reads a JSON prompt on **stdin** and writes
+  a JSON response on **stdout**, selected via a `SUT_COMMAND` env var. Our `crypto_boundary` calls that.
+- **Open contract risk**: ML-KEM encapsulation/keyCheck can't inject the randomness `m` via native .NET,
+  so KAT in that direction is limited — tracked as an M3 (full-mode) risk.
+- The generate/validate JSON contract (task I0) is the key cross-team deliverable; the fixtures' schema
+  IS that contract. See `docs/dev-process.md`.
 
 ## Pointers
 

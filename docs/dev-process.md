@@ -7,6 +7,49 @@
 
 ---
 
+## ★ 本階段優先指令（2026/06 更新 — 最新共識，優先於下方 §10 排程）
+
+> 經與教授及三組討論定案：**先把完整的 ACVP 流程建到 spec-faithful，並留好 203/204 的接點；等他們交付 gen-val 後直接插上、整條跑起來。** 本段為當前第一優先，順序高於 §10 的原始 sprint。
+
+### 角色定位（務必先懂）
+- **Server（我們）= 出考卷 + 改考卷**：產生/發放向量、握有標準答案、驗證 client 送回的答案。
+- **Client / DUT = 算考卷**：被驗證的密碼實作，對著向量算出答案。
+- **203/204 的 gen-val 插在 server 側的 `app/crypto_boundary/`**（出題＋改考卷的密碼學）。目前用 `tests/fixtures/nist` 當替身，整條流程現在就能跑；真模組到位後只換 boundary 後面，流程與端點不動。
+
+### 完整流程（依 NIST messaging 規格，client ↔ server）
+1. `POST /login` → 拿 JWT，之後每請求帶 `Authorization: Bearer`。
+2. `POST /testSessions`（**註冊**：宣告要測的演算法）→ 回 session URL + `vectorSetUrls` + `accessToken`。
+3. `GET /testSessions/{id}/vectorSets/{vsId}`（**取考卷**）→ 回向量；**若還沒生好，回 `{"vsId":N,"retry":30}`，client 等 N 秒再取**。
+4. `POST .../vectorSets/{vsId}/results`（**送答案**）→ **只回 HTTP 狀態碼，不含對錯**。
+5. `GET .../vectorSets/{vsId}/results`（**拉結果 / disposition**）→ 回逐 test case 結果。
+6. `GET /testSessions/{id}/results` → session 層總表（`passed` + 每個 vectorSet 的 status）。
+7. `PUT /testSessions/{id}`（**認證 certify**）→ 回 request id；再 `GET /requests/{id}` 取 validation id。
+
+### 三個最容易建錯的點（規格明文，務必照做）
+- **結果是「client 去拉」不是「server 推」**：送完答案要再發 GET 才拿得到分數。
+- **送答案只回 HTTP status（no-content）**：disposition 要用另一個 GET 取。
+- **取考卷也是非同步**：server 來不及生考卷時回 `retry`，這跟結果輪詢是**兩個不同的輪詢點**，都要做。
+
+### disposition 七種狀態（結果畫面要能顯示，不是只有過/不過）
+`passed` / `failed` / `incomplete`（驗證中，尚無錯）/ `unreceived` / `missing` / `expired` / `error`。
+
+### 本階段要補齊的（在現有 scaffold 上往下長，優先做這些）
+- [ ] **取考卷的 `retry` 路徑**：未生好回 `{vsId, retry:N}`。
+- [ ] **disposition 完整七狀態**（含 `incomplete` 部分完成、`expired`、`error`）。
+- [ ] **session 層結果總表** `GET /testSessions/{id}/results`。
+- [ ] **`isSample` 流程**：建 session 帶 `isSample:true` 時，`GET .../expected` 回標準答案（正式驗證不給）。
+- [ ] **認證收尾** `PUT /testSessions/{id}`（綁 module/OE，回 request id）。
+- [ ] **失敗重送** `PUT .../results`（整個 vectorSet 重送）。
+- [ ] **次要**：paging（清單分頁）、`POST /large`（可延後）。
+
+### 已知現況（2026/06）
+- **ML-KEM（203 組）語言已確定：C#/.NET 10**（內建 `System.Security.Cryptography.MLKem`）。⚠️ **macOS 不支援 ML-KEM**，他們的模組需在 **Linux / Docker** 跑；對我們無影響（仍經 JSON 行程邊界），但整合測試環境要備 Docker。
+- **ML-DSA（204 組）語言**：尚未確認（.NET 的 ML-DSA 仍 experimental）。
+- **接點機制已對齊**：203/204 用 **stdin 收 JSON prompt → stdout 吐 JSON response** 的 CLI，由 `SUT_COMMAND` 環境變數指定執行檔。
+- ⚠️ **待釘合約風險**：ML-KEM 的 encapsulation / keyCheck 方向，.NET 原生 API 無法注入隨機數 `m`，KAT 受限——列為 M3「全模式」的風險。
+
+---
+
 ## 0. 範圍與責任邊界（先讀這段）
 
 我們做的是 ACVP 的**協定層 + 前端 client**，是**演算法無關**的。密碼數學切給 203/204。
@@ -43,7 +86,7 @@
 ### 前後端綜效
 - [ ] FastAPI 自動產生 OpenAPI → 用 **openapi-typescript** 生成前端 TS 型別，前後端共用同一份 schema 真相
 
-> **唯一待定變數**：若 203/204 走 Python，整合最順（仍經行程邊界，不強制）；若走 C#，我們在「FastAPI + subprocess 呼叫」與「整個後端改 ASP.NET」之間取捨。**但這不阻塞我們開工**（見 §3 stub-first）。
+> **語言現況**：ML-KEM（203 組）已確定用 **C#/.NET 10**；ML-DSA（204 組）未定。**對我們無影響**——兩者都經「JSON 進、JSON 出」的行程邊界呼叫（`SUT_COMMAND` 指定執行檔），語言對我們透明。我們維持 FastAPI，不因對方語言改棧。**這也不阻塞我們開工**（見 §3 stub-first，用 NIST fixtures 當替身）。
 
 ---
 
@@ -130,10 +173,14 @@
 - [ ] client `GET /requests/{id}`：未完成回「retry」、完成回資源 URL
 - [ ] 狀態機：`processing` → `approved` / `rejected` / `error`
 - [ ] 設定合理的 retry-after 與逾時
+- [ ] **取考卷也要 retry**：`GET vectorSets/{vsId}` 在向量還沒生好時回 `{"vsId":N,"retry":N秒}`（與上面的結果輪詢是兩個獨立輪詢點）
 
-### vectorSet 生命週期
+### vectorSet 生命週期與 disposition
 - [ ] 狀態：`created` → `prompt 已取` → `response 已交` → `disposition` → `certified`
 - [ ] 過期判定：`GET vectorSets/{id}` 過期時回 `{"vsId":N,"status":"expired"}`
+- [ ] **disposition 七狀態都要支援**：`passed` / `failed` / `incomplete` / `unreceived` / `missing` / `expired` / `error`
+- [ ] **送答案 `POST .../results` 回 no-content（只 HTTP status）；分數由 `GET .../results` 拉**
+- [ ] **結果是 client 主動拉，不是 server 推**
 - [ ] not-realtime 場景的長離線輪詢測過
 
 ### 信封 / 版本

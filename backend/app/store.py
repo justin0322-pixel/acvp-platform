@@ -12,9 +12,28 @@ from typing import Any
 class VectorSet:
     vs_id: int
     mode_folder: str          # e.g. "ML-KEM-keyGen-FIPS203"
-    status: str = "created"   # created|prompt_retrieved|response_submitted|disposition|certified|expired
+    # generating: vectors not ready yet (GET returns retry) -> ready: prompt available ->
+    # prompt_retrieved -> response_submitted -> disposition -> certified; expired is terminal.
+    status: str = "generating"
+    prompt: dict | None = None
     response: dict | None = None
     validation: dict | None = None
+    resubmit_count: int = 0
+
+    def disposition(self) -> str:
+        """Map lifecycle state to an ACVP disposition value.
+
+        Spec values: passed / fail / incomplete / unreceived / missing /
+        expired / error. We synthesize unreceived/incomplete/expired/error from
+        state; passed/fail come through from the crypto module's validation.
+        """
+        if self.status == "expired":
+            return "expired"
+        if self.validation is not None:
+            return self.validation.get("disposition", "error")
+        if self.status == "response_submitted":
+            return "incomplete"  # responses received, validation in progress
+        return "unreceived"      # no responses received yet
 
 
 @dataclass
@@ -22,6 +41,12 @@ class TestSession:
     session_id: int
     vector_sets: list[VectorSet] = field(default_factory=list)
     passed: bool | None = None
+    is_sample: bool = False
+    encrypt_at_rest: bool = False
+    publishable: bool = False
+    created_on: str | None = None
+    expires_on: str | None = None
+    access_token: str | None = None
 
 
 class Store:
