@@ -7,6 +7,8 @@ import pytest
 
 from app.core.config import get_settings
 
+from helpers import registration
+
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-encapDecap-FIPS203" / "expectedResults.json"
 
 pytestmark = pytest.mark.skipif(
@@ -16,8 +18,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def _register(client, v, auth_header, *, algo, mode, is_sample):
-    payload = {"algorithms": [{"algorithm": algo, "mode": mode, "revision":
-                               "FIPS203" if algo == "ML-KEM" else "FIPS204"}]}
+    revision = "FIPS203" if algo == "ML-KEM" else "FIPS204"
+    payload = {"algorithms": [registration(f"{algo}-{mode}-{revision}")]}
     if is_sample is not None:
         payload["isSample"] = is_sample
     r = client.post("/acvp/v1/testSessions", json=[{"acvVersion": v}, payload], headers=auth_header)
@@ -64,7 +66,7 @@ def test_registration_response_echoes_is_sample(client, acv_version, auth_header
     r = client.post(
         "/acvp/v1/testSessions",
         json=[{"acvVersion": acv_version},
-              {"algorithms": [{"algorithm": "ML-KEM", "mode": "encapDecap", "revision": "FIPS203"}],
+              {"algorithms": [registration("ML-KEM-encapDecap-FIPS203")],
                "isSample": True}],
         headers=auth_header,
     )
