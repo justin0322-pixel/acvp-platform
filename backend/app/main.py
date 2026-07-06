@@ -1,11 +1,21 @@
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import algorithms, login, metadata, requests, test_sessions, vector_sets
+from app.core.config import get_settings
 
 app = FastAPI(title="ACVP server (server-client layer)", version="0.1.0")
+
+# Allow the web client (dev server) to call the API from the browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ACVP errors carry an "error" field describing the problem (spec Appendix B),
