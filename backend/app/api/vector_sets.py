@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 
-from app.core.auth import current_subject
+from app.core.auth import require_session_access
 from app.core.jobs import run_background
 from app.crypto_boundary import client
 from app.models.envelope import wrap, unwrap
@@ -21,7 +21,7 @@ def _session_or_404(session_id: int):
 
 
 @router.get("/testSessions/{session_id}/vectorSets")
-def list_vector_sets(session_id: int, _: str = Depends(current_subject)) -> list:
+def list_vector_sets(session_id: int, _: int = Depends(require_session_access)) -> list:
     """List the session's vector sets. Spec: {"vectorSetUrls": [...]} only."""
     session = _session_or_404(session_id)
     return wrap(
@@ -35,7 +35,7 @@ def list_vector_sets(session_id: int, _: str = Depends(current_subject)) -> list
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}")
-def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
+def get_vector_set(session_id: int, vs_id: int, _: int = Depends(require_session_access)) -> list:
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
@@ -52,7 +52,7 @@ def get_vector_set(session_id: int, vs_id: int, _: str = Depends(current_subject
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}/expected")
-def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
+def get_expected(session_id: int, vs_id: int, _: int = Depends(require_session_access)) -> list:
 
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
@@ -134,7 +134,7 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
     status_code=status.HTTP_200_OK,
 )
 def submit_results(
-    session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
+    session_id: int, vs_id: int, body: list = Body(...), _: int = Depends(require_session_access)
 ) -> Response:
     """Initial submission of a vector set's responses."""
     return _accept_results(session_id, vs_id, body, resubmit=False)
@@ -145,14 +145,14 @@ def submit_results(
     status_code=status.HTTP_200_OK,
 )
 def resubmit_results(
-    session_id: int, vs_id: int, body: list = Body(...), _: str = Depends(current_subject)
+    session_id: int, vs_id: int, body: list = Body(...), _: int = Depends(require_session_access)
 ) -> Response:
     """Resubmit an entire vector set after a failure (spec: identical to POST)."""
     return _accept_results(session_id, vs_id, body, resubmit=True)
 
 
 @router.get("/testSessions/{session_id}/vectorSets/{vs_id}/results")
-def get_results(session_id: int, vs_id: int, _: str = Depends(current_subject)) -> list:
+def get_results(session_id: int, vs_id: int, _: int = Depends(require_session_access)) -> list:
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:

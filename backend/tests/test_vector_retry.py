@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from helpers import registration
+from helpers import registration, session_headers
 
 from app.core.config import get_settings
 from app.store import store
@@ -33,6 +33,7 @@ def _ids(body):
 
 def test_vectorset_retry_while_generating(client, acv_version, auth_header):
     body = _register(client, acv_version, auth_header)
+    sh = session_headers(body)
     session_id, vs_url, vs_id = _ids(body)
 
     # Force the "still generating" state deterministically (no wall-clock races).
@@ -40,7 +41,7 @@ def test_vectorset_retry_while_generating(client, acv_version, auth_header):
     vs.status = "generating"
     vs.prompt = None
 
-    r = client.get(vs_url, headers=auth_header)
+    r = client.get(vs_url, headers=sh)
     assert r.status_code == 200
     payload = r.json()[1]
 
@@ -53,11 +54,12 @@ def test_vectorset_retry_while_generating(client, acv_version, auth_header):
 
 def test_vectorset_ready_returns_prompt(client, acv_version, auth_header):
     body = _register(client, acv_version, auth_header)
+    sh = session_headers(body)
     _, vs_url, _ = _ids(body)
 
     payload = None
     for _ in range(50):
-        payload = client.get(vs_url, headers=auth_header).json()[1]
+        payload = client.get(vs_url, headers=sh).json()[1]
         if "retry" not in payload:
             break
         time.sleep(0.02)

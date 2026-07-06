@@ -4,6 +4,15 @@ import json
 from app.core.config import get_settings
 
 
+def session_headers(register_body: dict) -> dict:
+    """Bearer header carrying a session's own accessToken (sub=session:{id}).
+
+    Per spec, session-scoped operations must be authorized with the token the
+    session was issued at registration, not the login token.
+    """
+    return {"Authorization": f"Bearer {register_body['accessToken']}"}
+
+
 def golden_response(vs_id: int, mode_folder: str = "ML-KEM-keyGen-FIPS203") -> dict:
     """A valid client submission: the NIST golden answers, stamped with our vsId."""
     path = get_settings().fixtures_dir / mode_folder / "expectedResults.json"

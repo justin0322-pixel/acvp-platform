@@ -4,7 +4,7 @@ Spec: GET /testSessions/{id}/vectorSets returns {"vectorSetUrls": [...]} only.
 """
 import pytest
 
-from helpers import registration
+from helpers import registration, session_headers
 
 from app.core.config import get_settings
 
@@ -25,7 +25,7 @@ def test_list_vector_sets_matches_registration(client, acv_version, auth_header)
     sid = int(body["url"].rsplit("/", 1)[1])
     registered = body["vectorSetUrls"]
 
-    r = client.get(f"/acvp/v1/testSessions/{sid}/vectorSets", headers=auth_header)
+    r = client.get(f"/acvp/v1/testSessions/{sid}/vectorSets", headers=session_headers(body))
     assert r.status_code == 200
     payload = r.json()[1]
     # Spec: only vectorSetUrls, nothing else.
@@ -34,5 +34,6 @@ def test_list_vector_sets_matches_registration(client, acv_version, auth_header)
     assert len(payload["vectorSetUrls"]) == 2
 
 
-def test_list_vector_sets_unknown_session_404(client, auth_header):
-    assert client.get("/acvp/v1/testSessions/999999/vectorSets", headers=auth_header).status_code == 404
+def test_list_vector_sets_unknown_session_forbidden(client, auth_header):
+    # Authz runs before existence: any token is 403 for a non-existent session.
+    assert client.get("/acvp/v1/testSessions/999999/vectorSets", headers=auth_header).status_code == 403
