@@ -1,0 +1,114 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getResults, getSessionResults, resubmitResults, getVectorSet, idFromUrl } from "../api/client";
+import type { SessionObject, VectorResults, SessionResults, Prompt } from "../api/types";
+import { StepHead, Button, Json, Notice, StatusBadge } from "../ui";
+import { buildResponse } from "../lib/flow";
+
+function ResultCard({ url, session }: { url: string; session: SessionObject }) {
+  const qc = useQueryClient();
+  const [showJson, setShowJson] = useState(false);
+  const q = useQuery({
+    queryKey: ["results", url],
+    queryFn: () => getResults(url, session.accessToken),
+    // Keep polling while validation is still in progress.
+    refetchInterval: (query) => {
+      const d = query.state.data as VectorResults | undefined;
+      return d && d.results.disposition === "incomplete" ? 1200 : false;
+    },
+  });
+
+  const resubmit = useMutation({
+    mutationFn: async () => {
+      const p = (await getVectorSet(url, session.accessToken)) as Prompt;
+      return resubmitResults(url, buildResponse(p), session.accessToken);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["results", url] }),
+  });
+
+  const r = q.data?.results;
+  const tests = r?.tests ?? [];
+  const passed = tests.filter((t) => t.result === "passed").length;
+
+  return (
+    <div className="card">
+      <div className="card-h">
+        <div><h2>Vector set #{idFromUrl(url)}</h2>
+          <div className="desc">{r ? `${passed}/${tests.length} cases passed` : "loading…"}</div></div>
+        <div style={{ marginLeft: "auto" }}>
+          <StatusBadge status={(r?.disposition as any) ?? "pending"} />
+        </div>
+      </div>
+      <div className="card-b stack">
+        {q.isError && <Notice kind="err">{(q.error as Error).message}</Notice>}
+        {r?.disposition === "incomplete" && (
+          <div className="notice info"><span className="spin dark" />Server is validating…</div>
+        )}
+        <div className="btn-row">
+          <Button variant="ghost" onClick={() => setShowJson((v) => !v)}>
+            {showJson ? "Hide detail" : "View per-case detail"}
+          </Button>
+          {(r?.disposition === "fail" || r?.disposition === "missing") && (
+            <Button variant="soft" loading={resubmit.isPending} onClick={() => resubmit.mutate()}>
+              Resubmit vector set
+            </Button>
+          )}
+        </div>
+        {showJson && q.data && <Json value={q.data} />}
+      </div>
+    </div>
+  );
+}
+
+export function Results({ session, onNext }: { session: SessionObject; onNext: () => void }) {
+  const id = idFromUrl(session.url);
+  const summary = useQuery({
+    queryKey: ["session-results", id],
+    queryFn: () => getSessionResults(id, session.accessToken),
+    refetchInterval: 1500,
+  });
+  const s = summary.data as SessionResults | undefined;
+  const multi = session.vectorSetUrls.length > 1;
+
+  return (
+    <div>
+      <StepHead eyebrow="Step 5" title="Results & disposition">
+        Results are pulled from the server (never pushed). Each vector set reports one of the seven
+        disposition states; the session passes only when every set passes.
+      </StepHead>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-h">
+          <div><h2>Session #{id} summary</h2><div className="desc">Aggregate across all vector sets</div></div>
+          <div style={{ marginLeft: "auto" }}>
+            {s ? (
+              <span className={`badge ${s.passed ? "ok" : "warn"}`}>{s.passed ? "passed" : "in progress"}</span>
+            ) : <span className="badge muted">loading</span>}
+          </div>
+        </div>
+        <div className="card-b">
+          <div className="panels-3">
+            {(s?.results ?? []).map((row) => (
+              <div key={row.vectorSetUrl} className="stat">
+                <div className="lab">vector set #{idFromUrl(row.vectorSetUrl)}</div>
+                <div style={{ marginTop: 8 }}><StatusBadge status={row.status as any} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className={multi ? "panels" : "stack"}>
+        {session.vectorSetUrls.map((url) => <ResultCard key={url} url={url} session={session} />)}
+      </div>
+
+      <div className="btn-row" style={{ marginTop: 20 }}>
+        <Button variant="ghost" onClick={onNext}
+          disabled={session.isSample}
+          title={session.isSample ? "Sample sessions cannot be certified" : ""}>
+          Continue to certification →
+        </Button>
+      </div>
+    </div>
+  );
+}

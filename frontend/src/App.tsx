@@ -4,7 +4,9 @@ import type { SessionObject } from "./api/types";
 import { Login } from "./steps/Login";
 import { Configure } from "./steps/Configure";
 import { Vectors } from "./steps/Vectors";
-import { StepHead, Notice } from "./ui";
+import { Submit } from "./steps/Submit";
+import { Results } from "./steps/Results";
+import { Certify } from "./steps/Certify";
 
 const STEPS = [
   { key: "login", label: "Authenticate", hint: "Obtain a JWT" },
@@ -99,15 +101,9 @@ export default function App() {
               onCreated={(s) => { setSession(s); setStep(2); }} />
           )}
           {step === 2 && session && <Vectors session={session} />}
-          {step >= 3 && (
-            <div>
-              <StepHead eyebrow={`Step ${step + 1}`} title={STEPS[step].label} />
-              <Notice kind="info">
-                This step is coming next. The API client and session-token wiring for it are
-                already in place — the UI is being built after this design checkpoint.
-              </Notice>
-            </div>
-          )}
+          {step === 3 && session && <Submit session={session} onNext={() => setStep(4)} />}
+          {step === 4 && session && <Results session={session} onNext={() => setStep(5)} />}
+          {step === 5 && session && loginToken && <Certify session={session} loginToken={loginToken} />}
         </main>
       </div>
     </div>
