@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     session_expire_seconds: int = 30 * 24 * 3600  # test sessions live ~30 days
     demo_password: str = "acvp-demo"
 
+    # Browser origins allowed to call the API (the web client dev servers).
+    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
     # Set FIXTURES_DIR_OVERRIDE to point at the golden vectors explicitly
     # (e.g. when running in a container). Otherwise resolved relative to the repo.
     fixtures_dir_override: str | None = None
