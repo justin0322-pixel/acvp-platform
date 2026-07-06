@@ -16,7 +16,9 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_404_uses_error_key(client, auth_header):
-    r = client.get("/acvp/v1/testSessions/999999/results", headers=auth_header)
+    # A request resource that legitimately 404s under the login token
+    # (session-scoped routes now 403 before the existence check).
+    r = client.get("/acvp/v1/requests/999999", headers=auth_header)
     assert r.status_code == 404
     assert "error" in r.json() and "detail" not in r.json()
 

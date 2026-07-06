@@ -41,3 +41,22 @@ def decode_token(token: str, *, verify_exp: bool = True) -> dict:
 
 def current_subject(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
     return decode_token(creds.credentials).get("sub", "")
+
+
+def require_session_access(
+    session_id: int, creds: HTTPAuthorizationCredentials = Depends(_bearer)
+) -> int:
+    """Authorize a session-scoped request.
+
+    Spec: the accessToken issued per test session MUST be supplied to access that
+    Test Session. Only that session's own token (sub == "session:{id}") is
+    accepted here — the shared login token and other sessions' tokens are
+    rejected with 403. decode_token already rejects alg:none / bad-sig / expired.
+    """
+    sub = decode_token(creds.credentials).get("sub")
+    if sub != f"session:{session_id}":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="access token is not authorized for this test session",
+        )
+    return session_id

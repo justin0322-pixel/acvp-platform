@@ -5,7 +5,7 @@ It MUST be HS256 (never alg:none) and carry exp/nbf/iss.
 """
 import pytest
 
-from helpers import registration
+from helpers import registration, session_headers
 
 from app.core.auth import decode_token
 from app.core.config import get_settings
@@ -54,7 +54,7 @@ def test_registration_object_is_spec_shaped(client, acv_version, auth_header):
 def test_get_session_object_has_no_token(client, acv_version, auth_header):
     body = _register(client, acv_version, auth_header)
     sid = int(body["url"].rsplit("/", 1)[1])
-    got = client.get(f"/acvp/v1/testSessions/{sid}", headers=auth_header).json()[1]
+    got = client.get(f"/acvp/v1/testSessions/{sid}", headers=session_headers(body)).json()[1]
     # GET object uses vectorSetsUrl pointer and does NOT re-issue the token.
     assert "accessToken" not in got
     assert got["vectorSetsUrl"] == f"/acvp/v1/testSessions/{sid}/vectorSets"

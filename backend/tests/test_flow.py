@@ -4,7 +4,7 @@ import pytest
 
 from app.core.config import get_settings
 
-from helpers import golden_response, registration
+from helpers import golden_response, registration, session_headers
 
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
@@ -22,11 +22,13 @@ def test_full_stub_flow(client, acv_version, auth_header):
     ]}]
     r = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header)
     assert r.status_code == 200
-    vs_url = r.json()[1]["vectorSetUrls"][0]
+    body = r.json()[1]
+    sh = session_headers(body)
+    vs_url = body["vectorSetUrls"][0]
 
     prompt = {"retry": 1}
     for _ in range(50):
-        prompt = client.get(vs_url, headers=auth_header).json()[1]
+        prompt = client.get(vs_url, headers=sh).json()[1]
         if "retry" not in prompt:
             break
         time.sleep(0.02)
@@ -35,13 +37,13 @@ def test_full_stub_flow(client, acv_version, auth_header):
     # Submit responses: no content, no score (disposition is pulled separately).
     r = client.post(vs_url + "/results",
                     json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))],
-                    headers=auth_header)
+                    headers=sh)
     assert r.status_code == 200 and r.content == b""
 
     # Pull the disposition from the results endpoint until validation lands.
     disposition = None
     for _ in range(50):
-        disposition = client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]["disposition"]
+        disposition = client.get(vs_url + "/results", headers=sh).json()[1]["results"]["disposition"]
         if disposition == "passed":
             break
         time.sleep(0.02)

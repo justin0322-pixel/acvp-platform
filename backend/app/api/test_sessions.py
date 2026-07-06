@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
-from app.core.auth import create_access_token, current_subject
+from app.core.auth import create_access_token, current_subject, require_session_access
 from app.core.config import get_settings
 from app.core.jobs import run_background, submit
 from app.crypto_boundary import client
@@ -98,7 +98,7 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
 
 
 @router.get("/testSessions/{session_id}")
-def get_test_session(session_id: int, _: str = Depends(current_subject)) -> list:
+def get_test_session(session_id: int, _: int = Depends(require_session_access)) -> list:
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
@@ -112,7 +112,7 @@ def get_test_session(session_id: int, _: str = Depends(current_subject)) -> list
 
 @router.put("/testSessions/{session_id}")
 def certify_test_session(
-    session_id: int, body: list = Body(...), _: str = Depends(current_subject)
+    session_id: int, body: list = Body(...), _: int = Depends(require_session_access)
 ) -> list:
 
     session = store.get_session(session_id)
@@ -133,7 +133,7 @@ def certify_test_session(
 
 
 @router.get("/testSessions/{session_id}/results")
-def get_session_results(session_id: int, _: str = Depends(current_subject)) -> list:
+def get_session_results(session_id: int, _: int = Depends(require_session_access)) -> list:
 
     session = store.get_session(session_id)
     if session is None:

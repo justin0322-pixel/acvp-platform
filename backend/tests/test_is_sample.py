@@ -7,7 +7,7 @@ import pytest
 
 from app.core.config import get_settings
 
-from helpers import registration
+from helpers import registration, session_headers
 
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-encapDecap-FIPS203" / "expectedResults.json"
 
@@ -25,13 +25,13 @@ def _register(client, v, auth_header, *, algo, mode, is_sample):
     r = client.post("/acvp/v1/testSessions", json=[{"acvVersion": v}, payload], headers=auth_header)
     assert r.status_code == 200
     body = r.json()[1]
-    return int(body["url"].rsplit("/", 1)[1]), body["vectorSetUrls"][0]
+    return int(body["url"].rsplit("/", 1)[1]), body["vectorSetUrls"][0], session_headers(body)
 
 
 def test_expected_returned_when_sample(client, acv_version, auth_header):
-    _, vs_url = _register(client, acv_version, auth_header,
-                          algo="ML-KEM", mode="encapDecap", is_sample=True)
-    r = client.get(vs_url + "/expected", headers=auth_header)
+    _, vs_url, sh = _register(client, acv_version, auth_header,
+                              algo="ML-KEM", mode="encapDecap", is_sample=True)
+    r = client.get(vs_url + "/expected", headers=sh)
     assert r.status_code == 200
     body = r.json()
     assert body[0]["acvVersion"] == acv_version
@@ -42,22 +42,22 @@ def test_expected_returned_when_sample(client, acv_version, auth_header):
 
 
 def test_expected_forbidden_when_not_sample(client, acv_version, auth_header):
-    _, vs_url = _register(client, acv_version, auth_header,
-                          algo="ML-KEM", mode="keyGen", is_sample=False)
-    assert client.get(vs_url + "/expected", headers=auth_header).status_code == 403
+    _, vs_url, sh = _register(client, acv_version, auth_header,
+                              algo="ML-KEM", mode="keyGen", is_sample=False)
+    assert client.get(vs_url + "/expected", headers=sh).status_code == 403
 
 
 def test_expected_forbidden_when_is_sample_omitted(client, acv_version, auth_header):
     # isSample defaults to false -> answer key must stay gated.
-    _, vs_url = _register(client, acv_version, auth_header,
-                          algo="ML-KEM", mode="keyGen", is_sample=None)
-    assert client.get(vs_url + "/expected", headers=auth_header).status_code == 403
+    _, vs_url, sh = _register(client, acv_version, auth_header,
+                              algo="ML-KEM", mode="keyGen", is_sample=None)
+    assert client.get(vs_url + "/expected", headers=sh).status_code == 403
 
 
 def test_session_echoes_is_sample(client, acv_version, auth_header):
-    sid, _ = _register(client, acv_version, auth_header,
-                       algo="ML-KEM", mode="encapDecap", is_sample=True)
-    payload = client.get(f"/acvp/v1/testSessions/{sid}", headers=auth_header).json()[1]
+    sid, _, sh = _register(client, acv_version, auth_header,
+                           algo="ML-KEM", mode="encapDecap", is_sample=True)
+    payload = client.get(f"/acvp/v1/testSessions/{sid}", headers=sh).json()[1]
     assert payload["isSample"] is True
 
 

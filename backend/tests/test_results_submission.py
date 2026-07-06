@@ -10,7 +10,7 @@ import pytest
 
 from app.core.config import get_settings
 
-from helpers import golden_response, registration
+from helpers import golden_response, registration, session_headers
 
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
@@ -24,18 +24,20 @@ def _ready_vs(client, v, auth_header):
     reg = [{"acvVersion": v}, {"algorithms": [
         registration("ML-KEM-keyGen-FIPS203")
     ]}]
-    vs_url = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]["vectorSetUrls"][0]
+    body = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]
+    sh = session_headers(body)
+    vs_url = body["vectorSetUrls"][0]
     for _ in range(50):
-        if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
+        if "retry" not in client.get(vs_url, headers=sh).json()[1]:
             break
         time.sleep(0.02)
-    return vs_url
+    return vs_url, sh
 
 
 def test_post_results_is_no_content_no_score(client, acv_version, auth_header):
-    vs_url = _ready_vs(client, acv_version, auth_header)
+    vs_url, sh = _ready_vs(client, acv_version, auth_header)
     r = client.post(vs_url + "/results",
-                    json=[{"acvVersion": acv_version}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
+                    json=[{"acvVersion": acv_version}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=sh)
 
     # Success with empty body, no disposition/score/url leaked. ACVP signals
     # "still processing" at the application layer (GET .../results disposition),
@@ -46,13 +48,13 @@ def test_post_results_is_no_content_no_score(client, acv_version, auth_header):
 
 
 def test_disposition_pulled_only_via_get_results(client, acv_version, auth_header):
-    vs_url = _ready_vs(client, acv_version, auth_header)
+    vs_url, sh = _ready_vs(client, acv_version, auth_header)
     client.post(vs_url + "/results",
-                json=[{"acvVersion": acv_version}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
+                json=[{"acvVersion": acv_version}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=sh)
 
     disposition = None
     for _ in range(50):
-        disposition = client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]["disposition"]
+        disposition = client.get(vs_url + "/results", headers=sh).json()[1]["results"]["disposition"]
         if disposition == "passed":
             break
         time.sleep(0.02)

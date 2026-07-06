@@ -55,10 +55,14 @@ r = c.post("/acvp/v1/testSessions", json=reg, headers=h)
 sess = show("2. Register test session (declare algorithms)", "POST", "/testSessions", r)
 sid = int(sess["url"].rsplit("/", 1)[1])
 vs_url = sess["vectorSetUrls"][0]
+# From here on, session-scoped calls must use THIS session's own access token
+# (spec: the per-session accessToken must be supplied to access the session).
+sh = {"Authorization": f"Bearer {sess['accessToken']}"}
+print("  -> switching to the session's own accessToken for session-scoped calls")
 
 # 3. Retrieve the vector set — async, may say 'retry' ------------------------
 for i in range(50):
-    r = c.get(vs_url, headers=h)
+    r = c.get(vs_url, headers=sh)
     payload = r.json()[1]
     if "retry" in payload:
         if i == 0:
@@ -75,12 +79,12 @@ answers = json.loads(
     (S.fixtures_dir / "ML-KEM-keyGen-FIPS203" / "expectedResults.json").read_text()
 )
 r = c.post(vs_url + "/results",
-           json=[{"acvVersion": V}, {**answers, "vsId": payload["vsId"]}], headers=h)
+           json=[{"acvVersion": V}, {**answers, "vsId": payload["vsId"]}], headers=sh)
 show("4. Submit answers (returns HTTP status only, no score)", "POST", vs_url + "/results", r)
 
 # 5. Pull disposition — incomplete -> passed ---------------------------------
 for i in range(50):
-    r = c.get(vs_url + "/results", headers=h)
+    r = c.get(vs_url + "/results", headers=sh)
     disp = r.json()[1]["results"]["disposition"]
     if disp == "passed":
         show("5. Pull results (disposition: passed)", "GET", vs_url + "/results", r)
@@ -90,13 +94,13 @@ for i in range(50):
     time.sleep(0.02)
 
 # 6. Session-level summary ---------------------------------------------------
-r = c.get(f"/acvp/v1/testSessions/{sid}/results", headers=h)
+r = c.get(f"/acvp/v1/testSessions/{sid}/results", headers=sh)
 show("6. Session results summary", "GET", f"/testSessions/{sid}/results", r)
 
 # 7. Certify -> poll request -> validation -----------------------------------
 r = c.put(f"/acvp/v1/testSessions/{sid}",
           json=[{"acvVersion": V}, {"moduleUrl": "/acvp/v1/modules/1", "oeUrl": "/acvp/v1/oes/1"}],
-          headers=h)
+          headers=sh)
 req = show("7. Certify the session", "PUT", f"/testSessions/{sid}", r)
 for _ in range(50):
     r = c.get(req["url"], headers=h)
