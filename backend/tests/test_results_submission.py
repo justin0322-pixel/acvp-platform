@@ -10,6 +10,8 @@ import pytest
 
 from app.core.config import get_settings
 
+from helpers import golden_response, registration
+
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
 pytestmark = pytest.mark.skipif(
@@ -20,7 +22,7 @@ pytestmark = pytest.mark.skipif(
 
 def _ready_vs(client, v, auth_header):
     reg = [{"acvVersion": v}, {"algorithms": [
-        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+        registration("ML-KEM-keyGen-FIPS203")
     ]}]
     vs_url = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]["vectorSetUrls"][0]
     for _ in range(50):
@@ -33,7 +35,7 @@ def _ready_vs(client, v, auth_header):
 def test_post_results_is_no_content_no_score(client, acv_version, auth_header):
     vs_url = _ready_vs(client, acv_version, auth_header)
     r = client.post(vs_url + "/results",
-                    json=[{"acvVersion": acv_version}, {"results": []}], headers=auth_header)
+                    json=[{"acvVersion": acv_version}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
 
     # Success with empty body, no disposition/score/url leaked. ACVP signals
     # "still processing" at the application layer (GET .../results disposition),
@@ -46,7 +48,7 @@ def test_post_results_is_no_content_no_score(client, acv_version, auth_header):
 def test_disposition_pulled_only_via_get_results(client, acv_version, auth_header):
     vs_url = _ready_vs(client, acv_version, auth_header)
     client.post(vs_url + "/results",
-                json=[{"acvVersion": acv_version}, {"results": []}], headers=auth_header)
+                json=[{"acvVersion": acv_version}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
 
     disposition = None
     for _ in range(50):

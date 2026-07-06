@@ -45,8 +45,12 @@ h = {"Authorization": f"Bearer {token}"}
 print(f"  -> got JWT ({token[:20]}…)")
 
 # 2. Register a test session -------------------------------------------------
-reg = [{"acvVersion": V}, {"algorithms": [
-    {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}]}]
+# The registration must declare full capabilities (parameterSets etc.); the
+# NIST example registration for this mode is the canonical valid one.
+capability = json.loads(
+    (S.fixtures_dir / "ML-KEM-keyGen-FIPS203" / "registration.json").read_text()
+)
+reg = [{"acvVersion": V}, {"algorithms": [capability]}]
 r = c.post("/acvp/v1/testSessions", json=reg, headers=h)
 sess = show("2. Register test session (declare algorithms)", "POST", "/testSessions", r)
 sid = int(sess["url"].rsplit("/", 1)[1])
@@ -65,7 +69,13 @@ for i in range(50):
     break
 
 # 4. Submit answers — no content, no score -----------------------------------
-r = c.post(vs_url + "/results", json=[{"acvVersion": V}, {"results": []}], headers=h)
+# The submission must carry every tcId from the prompt (else disposition is
+# "missing"); the NIST golden answers stand in for a real client's output.
+answers = json.loads(
+    (S.fixtures_dir / "ML-KEM-keyGen-FIPS203" / "expectedResults.json").read_text()
+)
+r = c.post(vs_url + "/results",
+           json=[{"acvVersion": V}, {**answers, "vsId": payload["vsId"]}], headers=h)
 show("4. Submit answers (returns HTTP status only, no score)", "POST", vs_url + "/results", r)
 
 # 5. Pull disposition — incomplete -> passed ---------------------------------

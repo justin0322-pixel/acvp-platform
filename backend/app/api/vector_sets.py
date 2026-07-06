@@ -67,6 +67,39 @@ def get_expected(session_id: int, vs_id: int, _: str = Depends(current_subject))
     return wrap({**expected, "vsId": vs.vs_id})
 
 
+def _tc_ids(payload: dict) -> set[int]:
+    return {t["tcId"] for g in payload.get("testGroups", []) for t in g.get("tests", [])}
+
+
+def _validate_submission(response: dict, vs) -> list[int]:
+    """Structural (non-crypto) checks on a submitted response.
+
+    Returns the tcIds present in the prompt but absent from the submission —
+    those grade the vector set `missing`. Unknown tcIds are a client error.
+    """
+    if response.get("vsId") != vs.vs_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "response vsId does not match the vector set")
+    groups = response.get("testGroups")
+    if not isinstance(groups, list):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "response must contain a testGroups array")
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("tgId"), int) \
+                or not isinstance(group.get("tests"), list) \
+                or not all(isinstance(t, dict) and isinstance(t.get("tcId"), int) for t in group["tests"]):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "each testGroup must carry an integer tgId and a tests array of objects with integer tcIds",
+            )
+
+    prompt_ids, submitted_ids = _tc_ids(vs.prompt), _tc_ids(response)
+    unknown = submitted_ids - prompt_ids
+    if unknown:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"response contains tcIds not in the prompt: {sorted(unknown)[:5]}"
+        )
+    return sorted(prompt_ids - submitted_ids)
+
+
 def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) -> Response:
 
     session = _session_or_404(session_id)
@@ -76,8 +109,12 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
     if vs.status == "expired":
         # Spec: (re)submission MUST occur prior to expiry.
         raise HTTPException(status.HTTP_403_FORBIDDEN, "vector set has expired")
+    if vs.status in ("generating", "ready") or vs.prompt is None:
+        # Illegal transition: answers cannot exist for a prompt never retrieved.
+        raise HTTPException(status.HTTP_409_CONFLICT, "vector set prompt has not been retrieved")
 
     response = unwrap(body)
+    vs.missing_tc_ids = _validate_submission(response, vs)
     vs.response = response
     vs.validation = None  # clear any prior disposition while we re-validate
     vs.status = "response_submitted"

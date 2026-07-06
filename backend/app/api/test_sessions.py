@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.core.jobs import run_background, submit
 from app.crypto_boundary import client
 from app.models.envelope import wrap, unwrap
+from app.models.registration import InvalidRegistration, UnsupportedAlgorithm, parse_registration
 from app.store import VectorSet, store
 
 router = APIRouter()
@@ -74,11 +75,14 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
     session.access_token = create_access_token(f"session:{session.session_id}")
 
     for algo in payload.get("algorithms", []):
-        key = (algo.get("algorithm"), algo.get("mode"), algo.get("revision"))
-        folder = _MODE_FOLDER.get(key)
-        if folder is None:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unsupported algorithm: {key}")
+        try:
+            capability = parse_registration(algo)
+        except (UnsupportedAlgorithm, InvalidRegistration) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        folder = _MODE_FOLDER[(capability.algorithm, capability.mode, capability.revision)]
         vs = store.add_vector_set(session, folder)
+        # What generate() will receive once the real 203/204 module lands.
+        vs.capabilities = capability.model_dump(exclude_none=True, exclude={"vsId", "isSample"})
         _start_generation(vs)
 
     return wrap(

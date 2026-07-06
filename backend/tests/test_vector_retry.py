@@ -2,6 +2,8 @@ import time
 
 import pytest
 
+from helpers import registration
+
 from app.core.config import get_settings
 from app.store import store
 
@@ -15,7 +17,7 @@ pytestmark = pytest.mark.skipif(
 
 def _register(client, v, auth_header):
     reg = [{"acvVersion": v}, {"algorithms": [
-        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+        registration("ML-KEM-keyGen-FIPS203")
     ]}]
     r = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header)
     assert r.status_code == 200

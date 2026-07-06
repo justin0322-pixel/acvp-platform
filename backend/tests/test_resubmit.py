@@ -11,6 +11,8 @@ import pytest
 from app.core.config import get_settings
 from app.store import store
 
+from helpers import golden_response, registration
+
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
 pytestmark = pytest.mark.skipif(
@@ -21,7 +23,7 @@ pytestmark = pytest.mark.skipif(
 
 def _ready_vs(client, v, auth_header):
     reg = [{"acvVersion": v}, {"algorithms": [
-        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+        registration("ML-KEM-keyGen-FIPS203")
     ]}]
     body = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]
     sid = int(body["url"].rsplit("/", 1)[1])
@@ -47,10 +49,10 @@ def _wait_passed(client, auth_header, vs_url):
 def test_put_resubmits_entire_vector_set(client, acv_version, auth_header):
     v = acv_version
     sid, vs_url = _ready_vs(client, v, auth_header)
-    client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    client.post(vs_url + "/results", json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
     _wait_passed(client, auth_header, vs_url)
 
-    r = client.put(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    r = client.put(vs_url + "/results", json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
     assert r.status_code == 200 and r.content == b""  # no content, like POST
     assert _vs(sid, vs_url).resubmit_count == 1
 
@@ -61,7 +63,7 @@ def test_put_resubmits_entire_vector_set(client, acv_version, auth_header):
 def test_put_without_prior_post_is_accepted(client, acv_version, auth_header):
     v = acv_version
     _, vs_url = _ready_vs(client, v, auth_header)
-    r = client.put(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    r = client.put(vs_url + "/results", json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
     assert r.status_code == 200
 
 
@@ -70,5 +72,5 @@ def test_put_rejected_after_expiry(client, acv_version, auth_header):
     sid, vs_url = _ready_vs(client, v, auth_header)
     _vs(sid, vs_url).status = "expired"
     # Spec: resubmission MUST occur prior to expiry.
-    r = client.put(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    r = client.put(vs_url + "/results", json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))], headers=auth_header)
     assert r.status_code == 403

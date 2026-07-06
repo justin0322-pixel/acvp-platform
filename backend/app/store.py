@@ -19,16 +19,21 @@ class VectorSet:
     response: dict | None = None
     validation: dict | None = None
     resubmit_count: int = 0
+    missing_tc_ids: list[int] = field(default_factory=list)
+    capabilities: dict | None = None  # validated registration, for generate()
 
     def disposition(self) -> str:
         """Map lifecycle state to an ACVP disposition value.
 
         Spec values: passed / fail / incomplete / unreceived / missing /
-        expired / error. We synthesize unreceived/incomplete/expired/error from
-        state; passed/fail come through from the crypto module's validation.
+        expired / error. We synthesize unreceived/incomplete/missing/expired/
+        error from state; passed/fail come through from the crypto module's
+        validation.
         """
         if self.status == "expired":
             return "expired"
+        if self.missing_tc_ids:
+            return "missing"  # submission lacked some of the prompt's test cases
         if self.validation is not None:
             return self.validation.get("disposition", "error")
         if self.status == "response_submitted":

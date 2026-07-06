@@ -4,6 +4,8 @@ import pytest
 
 from app.core.config import get_settings
 
+from helpers import golden_response, registration
+
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
 pytestmark = pytest.mark.skipif(
@@ -16,7 +18,7 @@ def test_full_stub_flow(client, acv_version, auth_header):
     v = acv_version
 
     reg = [{"acvVersion": v}, {"algorithms": [
-        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+        registration("ML-KEM-keyGen-FIPS203")
     ]}]
     r = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header)
     assert r.status_code == 200
@@ -31,7 +33,9 @@ def test_full_stub_flow(client, acv_version, auth_header):
     assert prompt["algorithm"] == "ML-KEM"
 
     # Submit responses: no content, no score (disposition is pulled separately).
-    r = client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    r = client.post(vs_url + "/results",
+                    json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))],
+                    headers=auth_header)
     assert r.status_code == 200 and r.content == b""
 
     # Pull the disposition from the results endpoint until validation lands.

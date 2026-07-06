@@ -9,6 +9,8 @@ import pytest
 
 from app.core.config import get_settings
 
+from helpers import golden_response, registration
+
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
 pytestmark = pytest.mark.skipif(
@@ -19,7 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 def _register(client, v, auth_header, *, is_sample=False):
     reg = [{"acvVersion": v}, {
-        "algorithms": [{"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}],
+        "algorithms": [registration("ML-KEM-keyGen-FIPS203")],
         "isSample": is_sample,
     }]
     body = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]
@@ -31,7 +33,9 @@ def _drive_to_passed(client, v, auth_header, vs_url):
         if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
             break
         time.sleep(0.02)
-    client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    client.post(vs_url + "/results",
+                json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))],
+                headers=auth_header)
     for _ in range(50):
         if client.get(vs_url + "/results", headers=auth_header).json()[1]["results"]["disposition"] == "passed":
             break

@@ -4,6 +4,8 @@ import pytest
 
 from app.core.config import get_settings
 
+from helpers import golden_response, registration
+
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
 pytestmark = pytest.mark.skipif(
@@ -14,7 +16,7 @@ pytestmark = pytest.mark.skipif(
 
 def _create_session(client, v, auth_header):
     reg = [{"acvVersion": v}, {"algorithms": [
-        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+        registration("ML-KEM-keyGen-FIPS203")
     ]}]
     r = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header)
     assert r.status_code == 200
@@ -46,7 +48,9 @@ def test_session_results_passed_after_submission(client, acv_version, auth_heade
         if "retry" not in client.get(vs_url, headers=auth_header).json()[1]:
             break
         time.sleep(0.02)
-    client.post(vs_url + "/results", json=[{"acvVersion": v}, {"results": []}], headers=auth_header)
+    client.post(vs_url + "/results",
+                json=[{"acvVersion": v}, golden_response(int(vs_url.rsplit("/", 1)[1]))],
+                headers=auth_header)
 
     # Wait for the async validation to land (pulled via the results endpoint).
     for _ in range(50):

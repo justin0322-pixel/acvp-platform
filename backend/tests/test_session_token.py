@@ -5,6 +5,8 @@ It MUST be HS256 (never alg:none) and carry exp/nbf/iss.
 """
 import pytest
 
+from helpers import registration
+
 from app.core.auth import decode_token
 from app.core.config import get_settings
 
@@ -18,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 
 def _register(client, v, auth_header):
     reg = [{"acvVersion": v}, {"algorithms": [
-        {"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}
+        registration("ML-KEM-keyGen-FIPS203")
     ]}]
     return client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]
 
@@ -61,7 +63,7 @@ def test_get_session_object_has_no_token(client, acv_version, auth_header):
 
 def test_encrypt_at_rest_is_echoed(client, acv_version, auth_header):
     reg = [{"acvVersion": acv_version},
-           {"algorithms": [{"algorithm": "ML-KEM", "mode": "keyGen", "revision": "FIPS203"}],
+           {"algorithms": [registration("ML-KEM-keyGen-FIPS203")],
             "encryptAtRest": True}]
     body = client.post("/acvp/v1/testSessions", json=reg, headers=auth_header).json()[1]
     assert body["encryptAtRest"] is True
