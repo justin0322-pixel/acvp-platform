@@ -4,12 +4,12 @@ import { login } from "../api/client";
 import { Button, Field, StepHead, Notice } from "../ui";
 
 export function Login({ loginToken, onAuthed }: {
-  loginToken: string | null; onAuthed: (t: string) => void;
+  loginToken: string | null; onAuthed: (t: string, pw: string) => void;
 }) {
   const [password, setPassword] = useState("acvp-demo");
   const m = useMutation({
     mutationFn: () => login(password),
-    onSuccess: (r) => onAuthed(r.accessToken),
+    onSuccess: (r) => onAuthed(r.accessToken, password),
   });
 
   return (

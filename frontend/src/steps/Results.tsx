@@ -36,7 +36,7 @@ function ResultCard({ url, session }: { url: string; session: SessionObject }) {
         <div><h2>Vector set #{idFromUrl(url)}</h2>
           <div className="desc">{r ? `${passed}/${tests.length} cases passed` : "loading…"}</div></div>
         <div style={{ marginLeft: "auto" }}>
-          <StatusBadge status={(r?.disposition as any) ?? "pending"} />
+          <StatusBadge status={r?.disposition ?? "pending"} />
         </div>
       </div>
       <div className="card-b stack">
@@ -91,7 +91,7 @@ export function Results({ session, onNext }: { session: SessionObject; onNext: (
             {(s?.results ?? []).map((row) => (
               <div key={row.vectorSetUrl} className="stat">
                 <div className="lab">vector set #{idFromUrl(row.vectorSetUrl)}</div>
-                <div style={{ marginTop: 8 }}><StatusBadge status={row.status as any} /></div>
+                <div style={{ marginTop: 8 }}><StatusBadge status={row.status} /></div>
               </div>
             ))}
           </div>

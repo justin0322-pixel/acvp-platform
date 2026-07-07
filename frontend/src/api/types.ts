@@ -42,11 +42,24 @@ export interface SessionInfo {
 export type Disposition =
   | "passed" | "fail" | "incomplete" | "unreceived" | "missing" | "expired" | "error";
 
+export interface TestCase {
+  tcId: number;
+  [key: string]: any;
+}
+
+export interface TestGroup {
+  tgId: number;
+  testType: string;
+  parameterSet?: string;
+  tests: TestCase[];
+  [key: string]: any;
+}
+
 export interface RetrySignal { vsId: number; retry: number; }
 export interface ExpiredSignal { vsId: number; status: "expired"; }
 export interface Prompt {
   vsId: number; algorithm: string; mode: string; revision: string;
-  isSample?: boolean; testGroups: any[];
+  isSample?: boolean; testGroups: TestGroup[];
 }
 export type VectorSetResponse = Prompt | RetrySignal | ExpiredSignal;
 

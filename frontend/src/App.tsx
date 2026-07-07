@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { backendLabel, idFromUrl } from "./api/client";
+import { useState, useEffect } from "react";
+import { backendLabel, idFromUrl, login, getJwtExpiry } from "./api/client";
 import type { SessionObject } from "./api/types";
 import { Login } from "./steps/Login";
 import { Configure } from "./steps/Configure";
@@ -45,9 +45,71 @@ function StatStrip({ loginToken, session }: { loginToken: string | null; session
 }
 
 export default function App() {
-  const [step, setStep] = useState(0);
-  const [loginToken, setLoginToken] = useState<string | null>(null);
-  const [session, setSession] = useState<SessionObject | null>(null);
+  const [loginToken, setLoginToken] = useState<string | null>(() => localStorage.getItem("loginToken"));
+  const [session, setSession] = useState<SessionObject | null>(() => {
+    const saved = localStorage.getItem("session");
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [step, setStep] = useState<number>(() => {
+    const saved = localStorage.getItem("step");
+    return saved ? Number(saved) : 0;
+  });
+  const [password, setPassword] = useState<string>("acvp-demo");
+
+  useEffect(() => {
+    if (!loginToken) return;
+
+    const expiry = getJwtExpiry(loginToken);
+    if (!expiry) return;
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const renewInSeconds = expiry - nowSeconds - 300; // 5 minutes before expiration
+
+    const performRenewal = async () => {
+      try {
+        const result = await login(password, loginToken);
+        setLoginToken(result.accessToken);
+      } catch (err) {
+        console.error("Failed to renew login token automatically:", err);
+        setLoginToken(null);
+        setSession(null);
+        setStep(0);
+        localStorage.clear();
+      }
+    };
+
+    if (renewInSeconds <= 0) {
+      performRenewal();
+      return;
+    }
+
+    const timer = setTimeout(performRenewal, renewInSeconds * 1000);
+    return () => clearTimeout(timer);
+  }, [loginToken, password]);
+
+  useEffect(() => {
+    if (loginToken) {
+      localStorage.setItem("loginToken", loginToken);
+    } else {
+      localStorage.removeItem("loginToken");
+    }
+  }, [loginToken]);
+
+  useEffect(() => {
+    if (session) {
+      localStorage.setItem("session", JSON.stringify(session));
+    } else {
+      localStorage.removeItem("session");
+    }
+  }, [session]);
+
+  useEffect(() => {
+    localStorage.setItem("step", String(step));
+  }, [step]);
 
   const unlocked = (i: number) => (i === 0 ? true : i === 1 ? !!loginToken : !!session);
   const done = (i: number) => (i === 0 ? !!loginToken : i === 1 ? !!session : false);
@@ -63,6 +125,20 @@ export default function App() {
           </div>
         </div>
         <div className="spacer" />
+        {loginToken && (
+          <button
+            className="btn btn-ghost"
+            style={{ padding: "6px 12px", fontSize: "12px", marginRight: "10px", color: "#b9bdda" }}
+            onClick={() => {
+              setLoginToken(null);
+              setSession(null);
+              setStep(0);
+              localStorage.clear();
+            }}
+          >
+            Reset Session / Sign Out
+          </button>
+        )}
         {session ? (
           <span className="session-tag">● session #{idFromUrl(session.url)} · token active</span>
         ) : (
@@ -94,7 +170,7 @@ export default function App() {
           <StatStrip loginToken={loginToken} session={session} />
 
           {step === 0 && (
-            <Login loginToken={loginToken} onAuthed={(t) => { setLoginToken(t); setStep(1); }} />
+            <Login loginToken={loginToken} onAuthed={(t, pw) => { setLoginToken(t); setPassword(pw); setStep(1); }} />
           )}
           {step === 1 && loginToken && (
             <Configure loginToken={loginToken} existing={session}
