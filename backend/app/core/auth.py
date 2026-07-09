@@ -48,7 +48,7 @@ def current_subject(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -> s
 
 
 def require_session_access(
-    session_id: int, creds: HTTPAuthorizationCredentials = Depends(_bearer)
+    testSessionId: int, creds: HTTPAuthorizationCredentials = Depends(_bearer)
 ) -> int:
     """Authorize a session-scoped request.
 
@@ -56,11 +56,13 @@ def require_session_access(
     Test Session. Only that session's own token (sub == "session:{id}") is
     accepted here — the shared login token and other sessions' tokens are
     rejected with 403. decode_token already rejects alg:none / bad-sig / expired.
+
+    The path parameter is named `testSessionId` to match the spec's URI hierarchy.
     """
     sub = decode_token(creds.credentials).get("sub")
-    if sub != f"session:{session_id}":
+    if sub != f"session:{testSessionId}":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="access token is not authorized for this test session",
         )
-    return session_id
+    return testSessionId
