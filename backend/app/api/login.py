@@ -18,10 +18,10 @@ def login(body: list = Body(...)) -> list:
 
     subject = "demo"
     if payload.accessToken is not None:
-        try:
-            subject = decode_token(payload.accessToken, verify_exp=False).get("sub", "demo")
-        except HTTPException:
-            pass  
+        # Renewal: carry the subject over from the presented token. A forged or
+        # malformed token is rejected (401) rather than silently downgraded — an
+        # expired-but-valid token is still accepted (verify_exp=False).
+        subject = decode_token(payload.accessToken, verify_exp=False).get("sub", "demo")
 
     return wrap(LoginResult(accessToken=create_access_token(subject)).model_dump())
 
