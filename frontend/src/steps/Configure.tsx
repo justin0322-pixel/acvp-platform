@@ -5,8 +5,12 @@ import { FAMILIES, buildCapability } from "../lib/catalog";
 import { Button, Field, StepHead, Notice, Json } from "../ui";
 import type { SessionObject } from "../api/types";
 
-export function Configure({ loginToken, existing, onCreated }: {
-  loginToken: string; existing: SessionObject | null; onCreated: (s: SessionObject) => void;
+export function Configure({ loginToken, existing, history = [], onLoadSession, onCreated }: {
+  loginToken: string;
+  existing: SessionObject | null;
+  history?: SessionObject[];
+  onLoadSession: (s: SessionObject) => void;
+  onCreated: (s: SessionObject) => void;
 }) {
   const [famId, setFamId] = useState(FAMILIES[0].id);
   const fam = FAMILIES.find((f) => f.id === famId)!;
@@ -116,6 +120,53 @@ export function Configure({ loginToken, existing, onCreated }: {
               Configure the registration on the left and create a session. Its object — including
               the per-session access token and vector-set URLs — will appear here.
             </div>
+          </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="card">
+          <div className="card-h">
+            <div>
+              <h2>Session History</h2>
+              <div className="desc">Created in the current tab session</div>
+            </div>
+          </div>
+          <div className="card-b stack" style={{ maxHeight: "320px", overflowY: "auto" }}>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {history.map((h) => {
+                const sId = idFromUrl(h.url);
+                const isCurrent = existing && idFromUrl(existing.url) === sId;
+                return (
+                  <li key={h.url} style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "8px 0",
+                    borderBottom: "1px solid #2d3047"
+                  }}>
+                    <div>
+                      <span className="mono" style={{ fontWeight: "bold", color: "#e1e3f0" }}>#{sId}</span>
+                      <span className="badge muted" style={{ marginLeft: 8 }}>
+                        {h.isSample ? "sample" : "production"}
+                      </span>
+                      <div style={{ fontSize: "11px", color: "#6c729c", marginTop: 2 }}>
+                        Created: {h.createdOn.slice(11, 19)}
+                      </div>
+                    </div>
+                    <div>
+                      {isCurrent ? (
+                        <span className="badge ok">active</span>
+                      ) : (
+                        <Button variant="soft" onClick={() => onLoadSession(h)} style={{ padding: "4px 8px", fontSize: "12px", minHeight: 0 }}>
+                          Resume
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </div>
       )}

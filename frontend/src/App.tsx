@@ -51,6 +51,7 @@ export default function App() {
   const [step, setStep] = useState<number>(0);
   const [password, setPassword] = useState<string>("acvp-demo");
   const [sessionNotification, setSessionNotification] = useState<string | null>(null);
+  const [sessionHistory, setSessionHistory] = useState<SessionObject[]>([]);
 
   // Auto-reset step to 0 if loginToken is not present
   useEffect(() => {
@@ -136,6 +137,7 @@ export default function App() {
               setLoginToken(null);
               setSession(null);
               setSessionNotification(null);
+              setSessionHistory([]);
             }}
           >
             Reset Session / Sign Out
@@ -198,8 +200,22 @@ export default function App() {
             <Login loginToken={loginToken} onAuthed={(t, pw) => { setLoginToken(t); setPassword(pw); setStep(1); setSessionNotification(null); }} />
           )}
           {step === 1 && loginToken && (
-            <Configure loginToken={loginToken} existing={session}
-              onCreated={(s) => { setSession(s); setStep(2); setSessionNotification(null); }} />
+            <Configure
+              loginToken={loginToken}
+              existing={session}
+              history={sessionHistory}
+              onLoadSession={(s) => {
+                setSession(s);
+                setStep(2);
+                setSessionNotification(null);
+              }}
+              onCreated={(s) => {
+                setSession(s);
+                setStep(2);
+                setSessionNotification(null);
+                setSessionHistory((prev) => [...prev.filter((x) => x.url !== s.url), s]);
+              }}
+            />
           )}
           {step === 2 && session && <Vectors session={session} />}
           {step === 3 && session && <Submit session={session} onNext={() => setStep(4)} />}
