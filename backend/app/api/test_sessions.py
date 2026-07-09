@@ -97,8 +97,9 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
     )
 
 
-@router.get("/testSessions/{session_id}")
-def get_test_session(session_id: int, _: int = Depends(require_session_access)) -> list:
+@router.get("/testSessions/{testSessionId}")
+def get_test_session(testSessionId: int, _: int = Depends(require_session_access)) -> list:
+    session_id = testSessionId
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
@@ -110,11 +111,11 @@ def get_test_session(session_id: int, _: int = Depends(require_session_access)) 
     )
 
 
-@router.put("/testSessions/{session_id}")
+@router.put("/testSessions/{testSessionId}")
 def certify_test_session(
-    session_id: int, body: list = Body(...), _: int = Depends(require_session_access)
+    testSessionId: int, body: list = Body(...), _: int = Depends(require_session_access)
 ) -> list:
-
+    session_id = testSessionId
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
@@ -126,15 +127,16 @@ def certify_test_session(
         )
 
     async def _run(rid: int) -> None:
-        store.complete_request(rid, f"/acvp/v1/validations/{rid}")
+        vid = store.add_validation(session_id, _iso(datetime.now(timezone.utc)))
+        store.complete_request(rid, f"/acvp/v1/validations/{vid}")
 
     rid = submit(_run)
     return wrap({"url": f"/acvp/v1/requests/{rid}", "status": "processing"})
 
 
-@router.get("/testSessions/{session_id}/results")
-def get_session_results(session_id: int, _: int = Depends(require_session_access)) -> list:
-
+@router.get("/testSessions/{testSessionId}/results")
+def get_session_results(testSessionId: int, _: int = Depends(require_session_access)) -> list:
+    session_id = testSessionId
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")

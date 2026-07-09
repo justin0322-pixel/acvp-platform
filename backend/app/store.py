@@ -61,6 +61,8 @@ class Store:
         self._vs_ids = count(1)
         self._requests: dict[int, dict[str, Any]] = {}
         self._request_ids = count(1)
+        self._validations: dict[int, dict[str, Any]] = {}
+        self._validation_ids = count(1)
 
     def create_session(self) -> TestSession:
         sid = next(self._session_ids)
@@ -89,6 +91,15 @@ class Store:
 
     def complete_request(self, rid: int, location: str) -> None:
         self._requests[rid] = {"status": "approved", "location": location}
+
+    def add_validation(self, session_id: int, created_on: str) -> int:
+        """Record a validation (certificate) resource produced by certification."""
+        vid = next(self._validation_ids)
+        self._validations[vid] = {"session_id": session_id, "created_on": created_on}
+        return vid
+
+    def get_validation(self, vid: int) -> dict | None:
+        return self._validations.get(vid)
 
 
 store = Store()

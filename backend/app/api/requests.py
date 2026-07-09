@@ -7,14 +7,14 @@ from app.store import store
 router = APIRouter()
 
 
-@router.get("/requests/{request_id}")
-def get_request(request_id: int, _: str = Depends(current_subject)) -> list:
-    req = store.get_request(request_id)
+@router.get("/requests/{requestId}")
+def get_request(requestId: int, _: str = Depends(current_subject)) -> list:
+    req = store.get_request(requestId)
     if req is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "request not found")
     # Spec request object: url + status (+ approvedUrl / message). The client
     # keeps polling while status is initial/processing.
-    body = {"url": f"/acvp/v1/requests/{request_id}", "status": req["status"]}
+    body = {"url": f"/acvp/v1/requests/{requestId}", "status": req["status"]}
     if req.get("location"):
         body["approvedUrl"] = req["location"]
     if req.get("message"):

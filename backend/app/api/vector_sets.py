@@ -20,9 +20,10 @@ def _session_or_404(session_id: int):
     return session
 
 
-@router.get("/testSessions/{session_id}/vectorSets")
-def list_vector_sets(session_id: int, _: int = Depends(require_session_access)) -> list:
+@router.get("/testSessions/{testSessionId}/vectorSets")
+def list_vector_sets(testSessionId: int, _: int = Depends(require_session_access)) -> list:
     """List the session's vector sets. Spec: {"vectorSetUrls": [...]} only."""
+    session_id = testSessionId
     session = _session_or_404(session_id)
     return wrap(
         {
@@ -34,8 +35,9 @@ def list_vector_sets(session_id: int, _: int = Depends(require_session_access)) 
     )
 
 
-@router.get("/testSessions/{session_id}/vectorSets/{vs_id}")
-def get_vector_set(session_id: int, vs_id: int, _: int = Depends(require_session_access)) -> list:
+@router.get("/testSessions/{testSessionId}/vectorSets/{vectorSetId}")
+def get_vector_set(testSessionId: int, vectorSetId: int, _: int = Depends(require_session_access)) -> list:
+    session_id, vs_id = testSessionId, vectorSetId
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
@@ -51,9 +53,9 @@ def get_vector_set(session_id: int, vs_id: int, _: int = Depends(require_session
     return wrap({**vs.prompt, "vsId": vs.vs_id})
 
 
-@router.get("/testSessions/{session_id}/vectorSets/{vs_id}/expected")
-def get_expected(session_id: int, vs_id: int, _: int = Depends(require_session_access)) -> list:
-
+@router.get("/testSessions/{testSessionId}/vectorSets/{vectorSetId}/expected")
+def get_expected(testSessionId: int, vectorSetId: int, _: int = Depends(require_session_access)) -> list:
+    session_id, vs_id = testSessionId, vectorSetId
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
@@ -130,29 +132,32 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
 
 
 @router.post(
-    "/testSessions/{session_id}/vectorSets/{vs_id}/results",
+    "/testSessions/{testSessionId}/vectorSets/{vectorSetId}/results",
     status_code=status.HTTP_200_OK,
 )
 def submit_results(
-    session_id: int, vs_id: int, body: list = Body(...), _: int = Depends(require_session_access)
+    testSessionId: int, vectorSetId: int, body: list = Body(...),
+    _: int = Depends(require_session_access),
 ) -> Response:
     """Initial submission of a vector set's responses."""
-    return _accept_results(session_id, vs_id, body, resubmit=False)
+    return _accept_results(testSessionId, vectorSetId, body, resubmit=False)
 
 
 @router.put(
-    "/testSessions/{session_id}/vectorSets/{vs_id}/results",
+    "/testSessions/{testSessionId}/vectorSets/{vectorSetId}/results",
     status_code=status.HTTP_200_OK,
 )
 def resubmit_results(
-    session_id: int, vs_id: int, body: list = Body(...), _: int = Depends(require_session_access)
+    testSessionId: int, vectorSetId: int, body: list = Body(...),
+    _: int = Depends(require_session_access),
 ) -> Response:
     """Resubmit an entire vector set after a failure (spec: identical to POST)."""
-    return _accept_results(session_id, vs_id, body, resubmit=True)
+    return _accept_results(testSessionId, vectorSetId, body, resubmit=True)
 
 
-@router.get("/testSessions/{session_id}/vectorSets/{vs_id}/results")
-def get_results(session_id: int, vs_id: int, _: int = Depends(require_session_access)) -> list:
+@router.get("/testSessions/{testSessionId}/vectorSets/{vectorSetId}/results")
+def get_results(testSessionId: int, vectorSetId: int, _: int = Depends(require_session_access)) -> list:
+    session_id, vs_id = testSessionId, vectorSetId
     session = _session_or_404(session_id)
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
