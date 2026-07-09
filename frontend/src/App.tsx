@@ -7,6 +7,7 @@ import { Vectors } from "./steps/Vectors";
 import { Submit } from "./steps/Submit";
 import { Results } from "./steps/Results";
 import { Certify } from "./steps/Certify";
+import { Notice } from "./ui";
 
 const STEPS = [
   { key: "login", label: "Authenticate", hint: "Obtain a JWT" },
@@ -45,21 +46,20 @@ function StatStrip({ loginToken, session }: { loginToken: string | null; session
 }
 
 export default function App() {
-  const [loginToken, setLoginToken] = useState<string | null>(() => localStorage.getItem("loginToken"));
-  const [session, setSession] = useState<SessionObject | null>(() => {
-    const saved = localStorage.getItem("session");
-    try {
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [step, setStep] = useState<number>(() => {
-    const saved = localStorage.getItem("step");
-    return saved ? Number(saved) : 0;
-  });
+  const [loginToken, setLoginToken] = useState<string | null>(null);
+  const [session, setSession] = useState<SessionObject | null>(null);
+  const [step, setStep] = useState<number>(0);
   const [password, setPassword] = useState<string>("acvp-demo");
+  const [sessionNotification, setSessionNotification] = useState<string | null>(null);
 
+  // Auto-reset step to 0 if loginToken is not present
+  useEffect(() => {
+    if (!loginToken) {
+      setStep(0);
+    }
+  }, [loginToken]);
+
+  // Login token auto-renewal (runs as long as page is open and password matches)
   useEffect(() => {
     if (!loginToken) return;
 
@@ -77,8 +77,6 @@ export default function App() {
         console.error("Failed to renew login token automatically:", err);
         setLoginToken(null);
         setSession(null);
-        setStep(0);
-        localStorage.clear();
       }
     };
 
@@ -91,25 +89,30 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [loginToken, password]);
 
+  // Session token expiration check & warning
   useEffect(() => {
-    if (loginToken) {
-      localStorage.setItem("loginToken", loginToken);
-    } else {
-      localStorage.removeItem("loginToken");
-    }
-  }, [loginToken]);
+    if (!session?.accessToken) return;
 
-  useEffect(() => {
-    if (session) {
-      localStorage.setItem("session", JSON.stringify(session));
-    } else {
-      localStorage.removeItem("session");
+    const expiry = getJwtExpiry(session.accessToken);
+    if (!expiry) return;
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const timeRemaining = expiry - nowSeconds;
+
+    const expireSession = () => {
+      setSession(null);
+      setSessionNotification("Your test session has expired. Please register a new test session to continue.");
+      setStep(1); // Redirect back to create session step
+    };
+
+    if (timeRemaining <= 0) {
+      expireSession();
+      return;
     }
+
+    const timer = setTimeout(expireSession, timeRemaining * 1000);
+    return () => clearTimeout(timer);
   }, [session]);
-
-  useEffect(() => {
-    localStorage.setItem("step", String(step));
-  }, [step]);
 
   const unlocked = (i: number) => (i === 0 ? true : i === 1 ? !!loginToken : !!session);
   const done = (i: number) => (i === 0 ? !!loginToken : i === 1 ? !!session : false);
@@ -132,8 +135,7 @@ export default function App() {
             onClick={() => {
               setLoginToken(null);
               setSession(null);
-              setStep(0);
-              localStorage.clear();
+              setSessionNotification(null);
             }}
           >
             Reset Session / Sign Out
@@ -169,12 +171,35 @@ export default function App() {
         <main className="content">
           <StatStrip loginToken={loginToken} session={session} />
 
+          {sessionNotification && (
+            <Notice kind="err">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{sessionNotification}</span>
+                <button
+                  className="btn btn-ghost"
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    color: "inherit",
+                    minHeight: 0,
+                    border: "1px solid currentColor",
+                    borderRadius: "4px",
+                    cursor: "pointer"
+                  }}
+                  onClick={() => setSessionNotification(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </Notice>
+          )}
+
           {step === 0 && (
-            <Login loginToken={loginToken} onAuthed={(t, pw) => { setLoginToken(t); setPassword(pw); setStep(1); }} />
+            <Login loginToken={loginToken} onAuthed={(t, pw) => { setLoginToken(t); setPassword(pw); setStep(1); setSessionNotification(null); }} />
           )}
           {step === 1 && loginToken && (
             <Configure loginToken={loginToken} existing={session}
-              onCreated={(s) => { setSession(s); setStep(2); }} />
+              onCreated={(s) => { setSession(s); setStep(2); setSessionNotification(null); }} />
           )}
           {step === 2 && session && <Vectors session={session} />}
           {step === 3 && session && <Submit session={session} onNext={() => setStep(4)} />}

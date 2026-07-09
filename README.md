@@ -9,24 +9,46 @@ protocol rules, and `docs/dev-process.md` for the sprint plan and checklists.
 
 ## Quick start
 
+### Unix/macOS
+
 ```bash
 # 1. Vendor the NIST golden test vectors (pinned; see tests/fixtures/nist/SOURCE.md)
 chmod +x scripts/fetch-nist-fixtures.sh
 scripts/fetch-nist-fixtures.sh
 
-# 2. Backend
+# 2. Backend (Terminal 1)
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest                              # all green
 uvicorn app.main:app --reload       # API + docs at http://localhost:8000/docs
 
-# 3. Frontend (separate terminal)
+# 3. Frontend (Terminal 2)
 cd frontend
 npm install
 npm run dev                         # http://localhost:5173
+```
 
-# Or everything via Docker:
+### Windows (PowerShell)
+
+```powershell
+# 1. Backend (Terminal 1)
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+.\.venv\Scripts\pytest              # run backend tests
+.\.venv\Scripts\uvicorn app.main:app --reload
+
+# 2. Frontend (Terminal 2)
+cd frontend
+npm install
+npm run dev                         # http://localhost:5173
+```
+
+### Docker (Alternative)
+
+```bash
 docker compose up --build
 ```
 
