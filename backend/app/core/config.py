@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     acv_version: str = "1.0"
     jwt_secret: str = "change-me-dev-only"
     jwt_alg: str = "HS256"
+    jwt_issuer: str = "acvp-server"
     jwt_expire_seconds: int = 1800
     session_expire_seconds: int = 30 * 24 * 3600  # test sessions live ~30 days
     demo_password: str = "acvp-demo"

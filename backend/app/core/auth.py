@@ -13,7 +13,7 @@ def create_access_token(subject: str) -> str:
     s = get_settings()
     now = int(time.time())
     payload = {
-        "iss": "acvp-server",
+        "iss": s.jwt_issuer,
         "sub": subject,
         "iat": now,
         "nbf": now,
@@ -26,11 +26,15 @@ def decode_token(token: str, *, verify_exp: bool = True) -> dict:
     s = get_settings()
     try:
         # `algorithms` is an allow-list: an `alg: none` token can never be accepted.
+        # The four spec-required claims must be present (spec 12.3), and iss is
+        # verified. verify_exp is relaxed only for renewal/refresh of expired tokens
+        # — the claim must still be present, just not enforced as unexpired.
         return jwt.decode(
             token,
             s.jwt_secret,
             algorithms=[s.jwt_alg],
-            options={"verify_exp": verify_exp},
+            issuer=s.jwt_issuer,
+            options={"require": ["iss", "nbf", "exp", "iat"], "verify_exp": verify_exp},
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(
