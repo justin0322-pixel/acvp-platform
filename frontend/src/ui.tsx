@@ -44,7 +44,7 @@ export function Notice({ kind = "info", children }: { kind?: "info" | "err" | "o
 /** Disposition / session status → coloured badge. */
 const DISPO: Record<Disposition | "pending", { cls: string; label: string }> = {
   passed: { cls: "ok", label: "passed" },
-  fail: { cls: "bad", label: "fail" },
+  failed: { cls: "bad", label: "failed" },
   error: { cls: "bad", label: "error" },
   incomplete: { cls: "warn", label: "incomplete" },
   unreceived: { cls: "muted", label: "unreceived" },
