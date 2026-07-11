@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -88,6 +89,8 @@ class NistCliGenValProvider(GenValProvider):
                 "Set GENVAL_RUNNER_DLL and build it before enabling USE_NIST_GENVAL."
             )
 
+        _clear_macos_hidden_flag(self.settings.runner_dll.parent)
+
         stdout_path = work_dir / f"{prefix}.stdout.txt"
         stderr_path = work_dir / f"{prefix}.stderr.txt"
         command = [dotnet, str(self.settings.runner_dll), *args]
@@ -120,6 +123,23 @@ class NistCliGenValProvider(GenValProvider):
                 f"NIST GenValAppRunner failed for {prefix} with exit code {completed.returncode}. {detail}"
             )
         return completed
+
+
+def _clear_macos_hidden_flag(directory: Path) -> None:
+    """macOS dev workaround: the runner's sharedappsettings.json can carry the
+    UF_HIDDEN flag (it reappears after each run), and .NET's PhysicalFileProvider
+    refuses to read Hidden files -> "config file not found". Clear it best-effort
+    before each invocation. No-op off macOS / if chflags is missing.
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        subprocess.run(
+            ["chflags", "-R", "nohidden", str(directory)],
+            check=False, capture_output=True, timeout=10,
+        )
+    except Exception:
+        pass  # best-effort; if it fails the run surfaces the config error as before
 
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:

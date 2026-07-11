@@ -27,36 +27,42 @@ The engine is **file/dir based** (not stdin/stdout):
 `disposition`/`result` ∈ `passed`/`failed` — exactly what `store.VectorSet.disposition()` consumes,
 so no normalization layer is needed.
 
-## Build the engine (on a .NET 8 host)
+## Build it yourself (runbook)
 
-Use the FIPS 203 team's trimmed fork as the engine of record (gen-val reduced to ML-KEM/ML-DSA). The
-203/204 repos ship the scripts; the essentials:
+The FIPS 203 team's trimmed fork is the engine of record (gen-val reduced to ML-KEM/ML-DSA, its
+`Directory.*.props` at the repo root so `dotnet publish` needs no config copy). Our
+`scripts/nist/*` wrap the build/run.
 
 ```bash
-# 1. Get the NIST source (203 fork or the 204 team's vendored copy under third_party/)
-# 2. Publish the runner + Orleans host with the .NET 8 SDK:
-dotnet publish .../gen-val/samples/GenValAppRunner/src/NIST.CVP.ACVTS.Generation.GenValApp.csproj \
-  -c Release -o ./.nist-bin/genval-runner
-dotnet publish .../gen-val/samples/NIST.CVP.ACVTS.Orleans.ServerHost/...csproj \
-  -c Release -o ./.nist-bin/orleans-server
+# 0. Prereq: install the .NET 8 SDK (dotnet --version should print 8.x).
 
-# 3. Start Orleans in its own shell (leave it running):
-dotnet ./.nist-bin/orleans-server/NIST.CVP.ACVTS.Orleans.ServerHost.dll --console
+# 1. Clone the engine source (anywhere; a sibling dir is fine):
+git clone https://github.com/hhhylaiii/ACVP-Server.git ../ACVP-Server
+
+# 2. Publish the runner + Orleans host into backend/nist-bin/ (gitignored):
+scripts/nist/build-genval.sh ../ACVP-Server        # or: NIST_SRC=../ACVP-Server scripts/nist/build-genval.sh
+
+# 3. Start Orleans in its own shell and leave it running:
+scripts/nist/start-orleans.sh
+
+# 4. Smoke-test the engine directly (from a scratch dir), before touching the server:
+mkdir -p /tmp/gv && cd /tmp/gv
+cp <repo>/tests/fixtures/nist/ML-DSA-keyGen-FIPS204/registration.json .
+<repo>/scripts/nist/run-genval.sh generate registration.json          # -> prompt/internalProjection/expectedResults
+<repo>/scripts/nist/run-genval.sh validate internalProjection.json expectedResults.json   # -> validation.json (disposition: passed)
 ```
 
-There are two invocation styles in the wild: our provider calls the **published DLL directly**
-(`dotnet <GenValApp.dll> ...`, the FIPS 204 team's style); the FIPS 203 demo uses
-`dotnet run --project .../GenValAppRunner/src` with a separately-running Orleans silo. Both need
-Orleans up.
+Our provider calls the **published DLL directly** (`dotnet <GenValApp.dll> -c/-g/-n -b`); the FIPS 203
+demo instead uses `dotnet run --project .../GenValAppRunner/src`. Both require Orleans running.
 
 ## Point this server at it
 
-Set these (see `backend/.env.example`) and restart the API:
+Set these in `backend/.env` (see `backend/.env.example`) and restart the API:
 
 ```bash
 USE_NIST_GENVAL=true
-GENVAL_RUNNER_DLL=/abs/path/.nist-bin/genval-runner/NIST.CVP.ACVTS.Generation.GenValApp.dll
-GENVAL_ARTIFACT_ROOT=/abs/path/for/per-vector-set/work-dirs   # optional; defaults to backend/data/acvp-sessions
+GENVAL_RUNNER_DLL=<repo>/backend/nist-bin/genval-runner/NIST.CVP.ACVTS.Generation.GenValApp.dll
+GENVAL_ARTIFACT_ROOT=<abs path for work dirs>   # optional; defaults to backend/data/acvp-sessions
 GENVAL_TIMEOUT_SECONDS=120
 ```
 
@@ -64,6 +70,22 @@ With `USE_NIST_GENVAL=false` (default) the server stands in with the vendored fi
 .NET — the whole pipeline still runs. If the engine or Orleans is misconfigured, generation/validation
 surface as a vector-set disposition of `error` (details in the vector set's stored `error`), and the
 provider annotates Orleans/connection failures.
+
+### Automated acceptance against the real engine
+
+Once built and Orleans is up, run the five-mode acceptance (golden → `passed`, corruption →
+`failed`) without hand-driving the UI:
+
+```bash
+cd backend
+ACVP_REAL_ENGINE=1 \
+GENVAL_RUNNER_DLL=<repo>/backend/nist-bin/genval-runner/NIST.CVP.ACVTS.Generation.GenValApp.dll \
+pytest tests/test_nist_real_engine.py -v
+```
+
+It skips unless `ACVP_REAL_ENGINE=1`, `dotnet` is installed, and the runner DLL exists — so it is
+inert in normal CI. Generation goes through Orleans and can be slow; raise
+`ACVP_REAL_ENGINE_TIMEOUT` (seconds) for the big signature modes.
 
 ## Accept all five modes
 
