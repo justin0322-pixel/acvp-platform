@@ -7,6 +7,14 @@ from dataclasses import dataclass, field
 from itertools import count
 from typing import Any
 
+# ACVP disposition vocabulary (spec messaging). The crypto engine (NIST GenVal)
+# emits passed/failed at the vector-set and per-test-case level; we synthesize the
+# rest from lifecycle state. Any disposition the engine returns outside this set is
+# treated as `error` rather than passed through blindly.
+DISPOSITIONS = frozenset(
+    {"passed", "failed", "incomplete", "unreceived", "missing", "expired", "error"}
+)
+
 
 @dataclass
 class VectorSet:
@@ -20,22 +28,28 @@ class VectorSet:
     validation: dict | None = None
     resubmit_count: int = 0
     missing_tc_ids: list[int] = field(default_factory=list)
-    capabilities: dict | None = None  # validated registration, for generate()
+    capabilities: dict | None = None   # validated registration capabilities
+    registration: dict | None = None   # NIST-shaped registration for generate()
+    internal_projection: dict | None = None  # answer key from generation; NIST validate needs it
+    expected: dict | None = None       # expectedResults, disclosed only for isSample
+    error: str | None = None           # set when generation/validation raised
 
     def disposition(self) -> str:
-        """Map lifecycle state to an ACVP disposition value.
+        """Map lifecycle state to an ACVP disposition value (see DISPOSITIONS).
 
-        Spec values: passed / fail / incomplete / unreceived / missing /
-        expired / error. We synthesize unreceived/incomplete/missing/expired/
-        error from state; passed/fail come through from the crypto module's
-        validation.
+        We synthesize unreceived/incomplete/missing/expired/error from state;
+        passed/failed come through from the crypto module's validation, normalized
+        against the known vocabulary.
         """
         if self.status == "expired":
             return "expired"
+        if self.status == "error":
+            return "error"  # generation or validation failed (see self.error)
         if self.missing_tc_ids:
             return "missing"  # submission lacked some of the prompt's test cases
         if self.validation is not None:
-            return self.validation.get("disposition", "error")
+            disposition = self.validation.get("disposition", "error")
+            return disposition if disposition in DISPOSITIONS else "error"
         if self.status == "response_submitted":
             return "incomplete"  # responses received, validation in progress
         return "unreceived"      # no responses received yet

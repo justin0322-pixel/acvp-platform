@@ -6,6 +6,7 @@ from app.core.auth import create_access_token, current_subject, require_session_
 from app.core.config import get_settings
 from app.core.jobs import run_background, submit
 from app.crypto_boundary import client
+from app.crypto_boundary.registration import to_nist_registration
 from app.models.envelope import wrap, unwrap
 from app.models.registration import InvalidRegistration, UnsupportedAlgorithm, parse_registration
 from app.store import VectorSet, store
@@ -22,11 +23,21 @@ _MODE_FOLDER = {
 }
 
 
-def _start_generation(vs: VectorSet) -> None:
+def _start_generation(session, vs: VectorSet) -> None:
 
     async def _gen() -> None:
-        vs.prompt = client.generate(vs.mode_folder)  # stub: NIST golden prompt
-        vs.status = "ready"
+        try:
+            result = client.generate(
+                vs.registration, vs.mode_folder,
+                session_id=session.session_id, vs_id=vs.vs_id,
+            )
+            vs.prompt = result.prompt
+            vs.internal_projection = result.internal_projection  # NIST validate needs this
+            vs.expected = result.expected
+            vs.status = "ready"
+        except Exception as exc:  # engine/config/artifact failure -> disposition "error"
+            vs.error = str(exc)
+            vs.status = "error"
 
     run_background(_gen)
 
@@ -81,9 +92,14 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
         folder = _MODE_FOLDER[(capability.algorithm, capability.mode, capability.revision)]
         vs = store.add_vector_set(session, folder)
-        # What generate() will receive once the real 203/204 module lands.
+        # What generate() receives. NIST GenVal's registration input is the
+        # capabilities plus the resource vsId and the session's isSample flag
+        # (its shape matches our NIST registration.json fixtures verbatim).
         vs.capabilities = capability.model_dump(exclude_none=True, exclude={"vsId", "isSample"})
-        _start_generation(vs)
+        vs.registration = to_nist_registration(
+            vs.capabilities, vs_id=vs.vs_id, is_sample=session.is_sample
+        )
+        _start_generation(session, vs)
 
     return wrap(
         {
