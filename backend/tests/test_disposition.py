@@ -1,9 +1,9 @@
 """Increment 2: spec-faithful disposition vocabulary + response formats.
 
-Disposition values (ACVP messaging spec): fail / unreceived / incomplete /
+Disposition values (ACVP messaging spec): failed / unreceived / incomplete /
 expired / passed / missing / error. We synthesize unreceived/incomplete/
-expired/error from lifecycle state; passed/fail come through from the crypto
-module's validation verbatim.
+expired/error from lifecycle state; passed/failed come through from the crypto
+module's validation, normalized against the known vocabulary.
 """
 import time
 
@@ -87,10 +87,10 @@ def test_disposition_fail_passthrough(client, acv_version, auth_header):
     sid, vs_url, sh = _register(client, acv_version, auth_header)
     vs = _vs(sid, vs_url)
     # Crypto module reported a failure: server passes the disposition through verbatim.
-    vs.validation = {"vsId": vs.vs_id, "disposition": "fail",
-                     "tests": [{"tcId": 1, "result": "fail"}]}
+    vs.validation = {"vsId": vs.vs_id, "disposition": "failed",
+                     "tests": [{"tcId": 1, "result": "failed"}]}
     payload = client.get(vs_url + "/results", headers=sh).json()[1]
-    assert payload["results"]["disposition"] == "fail"
+    assert payload["results"]["disposition"] == "failed"
 
 
 # --- per-vectorSet results response format (spec: wrapped in "results") ---------

@@ -48,7 +48,7 @@ function ResultCard({ url, session }: { url: string; session: SessionObject }) {
           <Button variant="ghost" onClick={() => setShowJson((v) => !v)}>
             {showJson ? "Hide detail" : "View per-case detail"}
           </Button>
-          {(r?.disposition === "fail" || r?.disposition === "missing") && (
+          {(r?.disposition === "failed" || r?.disposition === "missing") && (
             <Button variant="soft" loading={resubmit.isPending} onClick={() => resubmit.mutate()}>
               Resubmit vector set
             </Button>

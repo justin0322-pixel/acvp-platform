@@ -40,7 +40,7 @@ export interface SessionInfo {
 }
 
 export type Disposition =
-  | "passed" | "fail" | "incomplete" | "unreceived" | "missing" | "expired" | "error";
+  | "passed" | "failed" | "incomplete" | "unreceived" | "missing" | "expired" | "error";
 
 export interface RetrySignal { vsId: number; retry: number; }
 export interface ExpiredSignal { vsId: number; status: "expired"; }

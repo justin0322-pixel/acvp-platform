@@ -64,7 +64,8 @@ def get_expected(testSessionId: int, vectorSetId: int, _: int = Depends(require_
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "expected results are only available for sample sessions"
         )
-    expected = client.expected(vs.mode_folder)  # stub: NIST golden answer key
+    # Prefer the answer key persisted at generation; fall back to the fixture.
+    expected = vs.expected if vs.expected is not None else client.expected_results(vs.mode_folder)
     # Stamp our resource id so the vsId matches the URL (see get_vector_set).
     return wrap({**expected, "vsId": vs.vs_id})
 
@@ -124,8 +125,15 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
         vs.resubmit_count += 1
 
     async def _run() -> None:
-        vs.validation = client.validate(vs.mode_folder, response)  # stub
-        vs.status = "disposition"
+        try:
+            vs.validation = client.validate(
+                vs.internal_projection, response, vs.mode_folder,
+                session_id=session_id, vs_id=vs_id,
+            )
+            vs.status = "disposition"
+        except Exception as exc:  # engine/config/artifact failure -> disposition "error"
+            vs.error = str(exc)
+            vs.status = "error"
 
     run_background(_run)
     return Response(status_code=status.HTTP_200_OK)
