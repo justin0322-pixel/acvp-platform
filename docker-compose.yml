@@ -1,14 +1,27 @@
 services:
+  # FastAPI backend + the NIST GenVal engine (Orleans silo + runner) in one
+  # container, all on localhost — see backend/Dockerfile for why. Set
+  # USE_NIST_GENVAL=false to run the fixture stub (no engine) instead.
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      target: backend
     ports:
       - "8000:8000"
     environment:
       - JWT_SECRET=change-me-dev-only
       - DEMO_PASSWORD=acvp-demo
       - FIXTURES_DIR_OVERRIDE=/fixtures
+      - USE_NIST_GENVAL=true   # grade with the real engine; false = fixture stub
     volumes:
-      - ./tests/fixtures/nist:/fixtures:ro   # golden vectors, read-only
+      - ./tests/fixtures/nist:/fixtures:ro   # golden vectors, read-only (fallback + tests)
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 60s   # the Orleans silo takes ~20-40s to come up first
 
   frontend:
     build: ./frontend
@@ -17,17 +30,14 @@ services:
     environment:
       - VITE_API_BASE=http://localhost:8000/acvp/v1
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # Deployment task queue (the prototype runs jobs in-process, so this is optional):
   # redis:
   #   image: redis:7-alpine
   # worker:
-  #   build: ./backend
+  #   build: { context: ./backend, target: backend }
   #   command: arq app.workers.tasks.WorkerSettings
-  #   environment:
-  #     - FIXTURES_DIR_OVERRIDE=/fixtures
-  #   volumes:
-  #     - ./tests/fixtures/nist:/fixtures:ro
   #   depends_on:
   #     - redis

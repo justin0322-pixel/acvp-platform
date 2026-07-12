@@ -27,6 +27,31 @@ The engine is **file/dir based** (not stdin/stdout):
 `disposition`/`result` ∈ `passed`/`failed` — exactly what `store.VectorSet.disposition()` consumes,
 so no normalization layer is needed.
 
+## Run the whole stack in Docker (one command)
+
+`docker compose up --build` runs everything: a single **backend** container hosting the FastAPI app
+**and** the NIST engine (Orleans silo + GenVal runner) on localhost, plus the **frontend**. The
+backend defaults to `USE_NIST_GENVAL=true`, so it grades with the real engine out of the box.
+
+**Prerequisite (one-time):** build the engine binaries into `backend/nist-bin/` first — the image
+copies them (they are gitignored, so a fresh clone won't have them):
+
+```bash
+scripts/nist/build-genval.sh /path/to/ACVP-Server   # needs the .NET 8 SDK (see runbook below)
+docker compose up --build                            # backend+engine on :8000, frontend on :5173
+```
+
+**Why one container (not an Orleans sidecar):** `OrleansSiloHost.cs` hardcodes
+`AdvertisedIPAddress = IPAddress.Loopback` and `UseLocalhostClustering()`, so the silo is only
+reachable on **localhost** — exactly how the 203/204 teams run it. The backend, silo, and runner
+therefore share one container (`backend/docker/backend-entrypoint.sh` starts the silo, waits for its
+gateway, then launches uvicorn). The silo port is moved off 8000 to avoid colliding with the API.
+A future split into an Orleans sidecar would require patching that hardcoded address in the fork.
+
+Verified in-container: real 5-mode grading works (correct answers → `passed`, corrupted → `failed`)
+for both ML-KEM and ML-DSA. Set `USE_NIST_GENVAL=false` (compose env) for fixture-stub mode with no
+engine (no `nist-bin/` needed).
+
 ## Build it yourself (runbook)
 
 The FIPS 203 team's trimmed fork is the engine of record (gen-val reduced to ML-KEM/ML-DSA, its
