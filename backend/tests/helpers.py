@@ -1,7 +1,24 @@
 """Shared test helpers for driving the result-submission flow."""
 import json
+import time
 
 from app.core.config import get_settings
+from app.store import store
+
+
+def await_generation(session_id: int, vs_id: int, timeout: float = 5.0):
+    """Block until the background generate task has settled; return the vector set.
+
+    Generation runs on a real thread (app.core.jobs.run_background). A test that
+    forces vectorSet state must let that thread finish first — otherwise the
+    generator overwrites the forced state from under it and the test is racy.
+    """
+    vs = store.get_vector_set(store.get_session(session_id), vs_id)
+    deadline = time.monotonic() + timeout
+    while vs.status == "generating" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert vs.status != "generating", f"vector set {vs_id} never finished generating"
+    return vs
 
 
 def session_headers(register_body: dict) -> dict:

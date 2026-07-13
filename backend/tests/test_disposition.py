@@ -12,7 +12,7 @@ import pytest
 from app.core.config import get_settings
 from app.store import store
 
-from helpers import golden_response, registration, session_headers
+from helpers import await_generation, golden_response, registration, session_headers
 
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
@@ -33,7 +33,8 @@ def _register(client, v, auth_header):
 
 
 def _vs(session_id, vs_url):
-    return store.get_vector_set(store.get_session(session_id), int(vs_url.rsplit("/", 1)[1]))
+    # Wait out the generate thread before handing back a vector set to force state on.
+    return await_generation(session_id, int(vs_url.rsplit("/", 1)[1]))
 
 
 def _drive_to_passed(client, v, sh, vs_url):

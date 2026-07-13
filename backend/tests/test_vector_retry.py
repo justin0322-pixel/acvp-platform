@@ -2,10 +2,9 @@ import time
 
 import pytest
 
-from helpers import registration, session_headers
+from helpers import await_generation, registration, session_headers
 
 from app.core.config import get_settings
-from app.store import store
 
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
@@ -36,8 +35,10 @@ def test_vectorset_retry_while_generating(client, acv_version, auth_header):
     sh = session_headers(body)
     session_id, vs_url, vs_id = _ids(body)
 
-    # Force the "still generating" state deterministically (no wall-clock races).
-    vs = store.get_vector_set(store.get_session(session_id), vs_id)
+    # Force the "still generating" state deterministically: let the generate thread
+    # settle first, then roll the vector set back — nothing is left in flight to
+    # overwrite it.
+    vs = await_generation(session_id, vs_id)
     vs.status = "generating"
     vs.prompt = None
 
