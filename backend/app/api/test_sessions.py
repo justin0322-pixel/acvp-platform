@@ -1,13 +1,16 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from pydantic import ValidationError
 
 from app.core.auth import create_access_token, current_subject, require_session_access
 from app.core.config import get_settings
 from app.core.jobs import run_background, submit
 from app.crypto_boundary import client
 from app.crypto_boundary.registration import to_nist_registration
+from app.models.certify import CertifyPayload
 from app.models.envelope import wrap, unwrap
+from app.models.paging import DEFAULT_LIMIT, paged
 from app.models.registration import InvalidRegistration, UnsupportedAlgorithm, parse_registration
 from app.store import VectorSet, store
 
@@ -47,8 +50,22 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _first_error(exc: ValidationError) -> str:
+    """Render a Pydantic failure as an ACVP error string (spec 22)."""
+    err = exc.errors()[0]
+    where = ".".join(str(p) for p in err["loc"])
+    return f"{where}: {err['msg']}" if where else err["msg"]
+
+
 def _session_passed(session) -> bool:
-    """True only when every vectorSet has a passed disposition."""
+    """True only when every vectorSet has a passed disposition.
+
+    A session with any cancelled vector set can never pass. Otherwise DELETE would
+    be a certification bypass: fail a vector set, cancel it, and certify on the
+    strength of the ones that happened to pass. [HUMAN REVIEW]
+    """
+    if session.has_cancelled_vector_sets:
+        return False
     return bool(session.vector_sets) and all(
         vs.disposition() == "passed" for vs in session.vector_sets
     )
@@ -73,10 +90,31 @@ def _session_base(session) -> dict:
     }
 
 
+@router.get("/testSessions")
+def list_test_sessions(
+    offset: int = 0, limit: int = DEFAULT_LIMIT, subject: str = Depends(current_subject)
+) -> list:
+    """Paged listing of the current user's test sessions (spec 12.16.1, OPTIONAL).
+
+    Each element is a test session object (spec 12.16.3) — note that the session's
+    accessToken is deliberately not among those fields: a credential is disclosed
+    once, at creation, and never re-served from a listing.
+    """
+    data = [
+        {
+            **_session_base(s),
+            "vectorSetsUrl": f"/acvp/v1/testSessions/{s.session_id}/vectorSets",
+        }
+        for s in store.list_sessions(owner=subject)
+    ]
+    return wrap(paged("testSessions", data, offset=offset, limit=limit))
+
+
 @router.post("/testSessions")
-def create_test_session(body: list = Body(...), _: str = Depends(current_subject)) -> list:
+def create_test_session(body: list = Body(...), subject: str = Depends(current_subject)) -> list:
     payload = unwrap(body)
     session = store.create_session()
+    session.owner = subject
     session.is_sample = bool(payload.get("isSample", False))
     session.encrypt_at_rest = bool(payload.get("encryptAtRest", False))
     now = datetime.now(timezone.utc)
@@ -136,19 +174,40 @@ def certify_test_session(
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
-    unwrap(body)  # validate envelope (moduleUrl/oeUrl recorded by a real authority)
+    try:
+        certify = CertifyPayload(**unwrap(body))
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _first_error(exc))
     if not (_session_passed(session) and _session_publishable(session)):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "test session must be publishable and passed before certification",
         )
 
+    recorded = certify.model_dump(exclude_none=True)
+
     async def _run(rid: int) -> None:
-        vid = store.add_validation(session_id, _iso(datetime.now(timezone.utc)))
+        vid = store.add_validation(session_id, _iso(datetime.now(timezone.utc)), recorded)
         store.complete_request(rid, f"/acvp/v1/validations/{vid}")
 
     rid = submit(_run)
     return wrap({"url": f"/acvp/v1/requests/{rid}", "status": "processing"})
+
+
+@router.delete("/testSessions/{testSessionId}", status_code=status.HTTP_200_OK)
+def cancel_test_session(
+    testSessionId: int, _: int = Depends(require_session_access)
+) -> Response:
+    """Cancel a test session (spec 12.16.5).
+
+    Marks it cancelled; store.get_session then reads it as absent, so every other
+    operation on it 404s, as the spec allows.
+    """
+    session = store.get_session(testSessionId)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "test session not found")
+    session.cancelled = True
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @router.get("/testSessions/{testSessionId}/results")
@@ -163,7 +222,8 @@ def get_session_results(testSessionId: int, _: int = Depends(require_session_acc
             "vectorSetUrl": f"/acvp/v1/testSessions/{session_id}/vectorSets/{vs.vs_id}",
             "status": vs.disposition(),
         }
-        for vs in session.vector_sets
+        for vs in session.active_vector_sets
     ]
-    passed = bool(session.vector_sets) and all(r["status"] == "passed" for r in results)
-    return wrap({"passed": passed, "results": results})
+    # `passed` comes from _session_passed, not from the rows above: a cancelled
+    # vector set drops out of the listing but still denies the session a pass.
+    return wrap({"passed": _session_passed(session), "results": results})

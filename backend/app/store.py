@@ -35,6 +35,7 @@ class VectorSet:
     expected: dict | None = None       # expectedResults, disclosed only for isSample
     error: str | None = None           # set when generation/validation raised
     expires_at: datetime | None = None  # submission deadline (spec 14)
+    show_expected: bool = False        # client asked to see expected/provided (spec 12.17.5.1)
 
     def expired(self) -> bool:
         """True once the submission deadline has passed (spec 14).
@@ -85,6 +86,17 @@ class TestSession:
     created_on: str | None = None
     expires_on: str | None = None
     access_token: str | None = None
+    owner: str | None = None    # JWT subject that created it; scopes the listing
+    cancelled: bool = False     # spec 12.16.5
+
+    @property
+    def active_vector_sets(self) -> list[VectorSet]:
+        """The vector sets still under test — cancelled ones are gone (spec 12.17.3)."""
+        return [v for v in self.vector_sets if v.status != "cancelled"]
+
+    @property
+    def has_cancelled_vector_sets(self) -> bool:
+        return any(v.status == "cancelled" for v in self.vector_sets)
 
 
 class Store:
@@ -103,16 +115,35 @@ class Store:
         self._sessions[sid] = s
         return s
 
-    def get_session(self, sid: int) -> TestSession | None:
-        return self._sessions.get(sid)
+    def get_session(self, sid: int, *, include_cancelled: bool = False) -> TestSession | None:
+        """Look up a session. Cancelled sessions read as absent (spec 12.16.5: further
+        operations "may return 404"), so every endpoint gets that for free."""
+        s = self._sessions.get(sid)
+        if s is None or (s.cancelled and not include_cancelled):
+            return None
+        return s
+
+    def list_sessions(self, owner: str | None = None) -> list[TestSession]:
+        """Live sessions owned by `owner`, newest first (the first page is the
+        one a client just created, which is the one they want)."""
+        return [
+            s for s in reversed(self._sessions.values())
+            if not s.cancelled and (owner is None or s.owner == owner)
+        ]
 
     def add_vector_set(self, session: TestSession, mode_folder: str) -> VectorSet:
         vs = VectorSet(vs_id=next(self._vs_ids), mode_folder=mode_folder)
         session.vector_sets.append(vs)
         return vs
 
-    def get_vector_set(self, session: TestSession, vs_id: int) -> VectorSet | None:
-        return next((v for v in session.vector_sets if v.vs_id == vs_id), None)
+    def get_vector_set(
+        self, session: TestSession, vs_id: int, *, include_cancelled: bool = False
+    ) -> VectorSet | None:
+        """As with sessions, a cancelled vector set reads as absent (spec 12.17.3)."""
+        vs = next((v for v in session.vector_sets if v.vs_id == vs_id), None)
+        if vs is None or (vs.status == "cancelled" and not include_cancelled):
+            return None
+        return vs
 
     def new_request(self) -> int:
         rid = next(self._request_ids)
@@ -125,10 +156,18 @@ class Store:
     def complete_request(self, rid: int, location: str) -> None:
         self._requests[rid] = {"status": "approved", "location": location}
 
-    def add_validation(self, session_id: int, created_on: str) -> int:
-        """Record a validation (certificate) resource produced by certification."""
+    def add_validation(self, session_id: int, created_on: str, certify: dict) -> int:
+        """Record a validation (certificate) resource produced by certification.
+
+        `certify` is the validated PUT body — the module/OE the certificate is
+        bound to, plus any algorithm prerequisites (spec 12.16.4.1).
+        """
         vid = next(self._validation_ids)
-        self._validations[vid] = {"session_id": session_id, "created_on": created_on}
+        self._validations[vid] = {
+            "session_id": session_id,
+            "created_on": created_on,
+            "certify": certify,
+        }
         return vid
 
     def get_validation(self, vid: int) -> dict | None:

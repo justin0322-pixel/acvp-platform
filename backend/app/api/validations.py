@@ -22,5 +22,7 @@ def get_validation(validationId: int, _: str = Depends(current_subject)) -> list
             "url": f"/acvp/v1/validations/{validationId}",
             "createdOn": v["created_on"],
             "testSessionUrl": f"/acvp/v1/testSessions/{v['session_id']}",
+            # What the certificate is bound to (spec 12.16.4.1).
+            **v["certify"],
         }
     )

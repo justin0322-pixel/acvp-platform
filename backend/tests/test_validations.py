@@ -48,7 +48,10 @@ def test_certify_approved_url_resolves_to_validation(client, acv_version, auth_h
     r = client.get(approved["approvedUrl"], headers=auth_header)
     assert r.status_code == 200
     body = r.json()[1]
-    assert set(body.keys()) == {"url", "createdOn", "testSessionUrl"}
+    # The certificate also records what it is bound to (spec 12.16.4.1).
+    assert set(body.keys()) == {
+        "url", "createdOn", "testSessionUrl", "moduleUrl", "oeUrl", "algorithmPrerequisites",
+    }
     assert body["testSessionUrl"] == f"/acvp/v1/testSessions/{sid}"
 
 

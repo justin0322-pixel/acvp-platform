@@ -21,6 +21,20 @@ def await_generation(session_id: int, vs_id: int, timeout: float = 5.0):
     return vs
 
 
+def await_validation(session_id: int, vs_id: int, timeout: float = 5.0):
+    """Block until the background validate task has settled; return the vector set.
+
+    Same hazard as await_generation: a test that injects a crypto verdict onto the
+    vector set must wait for the real validate thread to land first.
+    """
+    vs = store.get_vector_set(store.get_session(session_id), vs_id)
+    deadline = time.monotonic() + timeout
+    while vs.status not in ("disposition", "error") and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert vs.status in ("disposition", "error"), f"vector set {vs_id} was never validated"
+    return vs
+
+
 def session_headers(register_body: dict) -> dict:
     """Bearer header carrying a session's own accessToken (sub=session:{id}).
 

@@ -94,6 +94,90 @@ def test_certify_unknown_session_forbidden(client, acv_version, auth_header):
                       headers=auth_header).status_code == 403
 
 
+# --- certify request body (spec 12.16.4.1) --------------------------------------
+
+def _certify(client, v, sid, sh, payload):
+    return client.put(f"/acvp/v1/testSessions/{sid}", json=[{"acvVersion": v}, payload], headers=sh)
+
+
+def _passed_session(client, v, auth_header):
+    sid, vs_url, sh = _register(client, v, auth_header)
+    _drive_to_passed(client, v, sh, vs_url)
+    return sid, sh
+
+
+def test_certify_requires_a_module_reference(client, acv_version, auth_header):
+    v = acv_version
+    sid, sh = _passed_session(client, v, auth_header)
+    assert _certify(client, v, sid, sh, {"oeUrl": "/acvp/v1/oes/1"}).status_code == 400
+
+
+def test_certify_requires_an_oe_reference(client, acv_version, auth_header):
+    v = acv_version
+    sid, sh = _passed_session(client, v, auth_header)
+    assert _certify(client, v, sid, sh, {"moduleUrl": "/acvp/v1/modules/1"}).status_code == 400
+
+
+def test_certify_rejects_both_url_and_inline_object(client, acv_version, auth_header):
+    """Spec: `module` MAY be used *instead of* moduleUrl — not alongside it."""
+    v = acv_version
+    sid, sh = _passed_session(client, v, auth_header)
+    payload = {
+        "moduleUrl": "/acvp/v1/modules/1",
+        "module": {"name": "m"},
+        "oeUrl": "/acvp/v1/oes/1",
+    }
+    assert _certify(client, v, sid, sh, payload).status_code == 400
+
+
+def test_certify_accepts_algorithm_prerequisites(client, acv_version, auth_header):
+    v = acv_version
+    sid, sh = _passed_session(client, v, auth_header)
+    payload = {
+        "moduleUrl": "/acvp/v1/modules/20",
+        "oeUrl": "/acvp/v1/oes/60",
+        "algorithmPrerequisites": [{
+            "algorithm": "ML-KEM",
+            "prerequisites": [{"algorithm": "SHA3-256", "validationId": "123456"}],
+        }],
+    }
+    assert _certify(client, v, sid, sh, payload).status_code == 200
+
+
+def test_certify_rejects_malformed_prerequisites(client, acv_version, auth_header):
+    v = acv_version
+    sid, sh = _passed_session(client, v, auth_header)
+    payload = {
+        "moduleUrl": "/acvp/v1/modules/20",
+        "oeUrl": "/acvp/v1/oes/60",
+        # validationId is required on each prerequisite.
+        "algorithmPrerequisites": [{
+            "algorithm": "ML-KEM",
+            "prerequisites": [{"algorithm": "SHA3-256"}],
+        }],
+    }
+    assert _certify(client, v, sid, sh, payload).status_code == 400
+
+
+def test_certified_validation_records_the_module_and_oe(client, acv_version, auth_header):
+    v = acv_version
+    sid, sh = _passed_session(client, v, auth_header)
+    r = _certify(client, v, sid, sh,
+                 {"moduleUrl": "/acvp/v1/modules/20", "oeUrl": "/acvp/v1/oes/60"})
+    assert r.status_code == 200
+
+    approved = None
+    for _ in range(50):
+        approved = client.get(r.json()[1]["url"], headers=auth_header).json()[1]
+        if approved["status"] == "approved":
+            break
+        time.sleep(0.02)
+
+    validation = client.get(approved["approvedUrl"], headers=auth_header).json()[1]
+    assert validation["moduleUrl"] == "/acvp/v1/modules/20"
+    assert validation["oeUrl"] == "/acvp/v1/oes/60"
+
+
 def test_modules_and_oes_stubs(client, auth_header):
     # Spec: listings MUST be a paged response (totalCount/incomplete/links/data).
     for resource in ("modules", "oes"):

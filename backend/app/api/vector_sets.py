@@ -42,7 +42,7 @@ def list_vector_sets(testSessionId: int, _: int = Depends(require_session_access
         {
             "vectorSetUrls": [
                 f"/acvp/v1/testSessions/{session_id}/vectorSets/{vs.vs_id}"
-                for vs in session.vector_sets
+                for vs in session.active_vector_sets
             ]
         }
     )
@@ -67,6 +67,27 @@ def get_vector_set(testSessionId: int, vectorSetId: int, _: int = Depends(requir
     return wrap({**vs.prompt, "vsId": vs.vs_id, "expiry": _expiry(vs)})
 
 
+@router.delete(
+    "/testSessions/{testSessionId}/vectorSets/{vectorSetId}",
+    status_code=status.HTTP_200_OK,
+)
+def cancel_vector_set(
+    testSessionId: int, vectorSetId: int, _: int = Depends(require_session_access)
+) -> Response:
+    """Cancel testing of one vector set (spec 12.17.3).
+
+    The set drops out of the session's listing and every operation on it 404s.
+    Note it does NOT drop out of the session's verdict: see _session_passed —
+    cancelling a vector set must not be a way to buy a pass.
+    """
+    session = _session_or_404(testSessionId)
+    vs = store.get_vector_set(session, vectorSetId)
+    if vs is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
+    vs.status = "cancelled"
+    return Response(status_code=status.HTTP_200_OK)
+
+
 @router.get("/testSessions/{testSessionId}/vectorSets/{vectorSetId}/expected")
 def get_expected(testSessionId: int, vectorSetId: int, _: int = Depends(require_session_access)) -> list:
     session_id, vs_id = testSessionId, vectorSetId
@@ -86,6 +107,42 @@ def get_expected(testSessionId: int, vectorSetId: int, _: int = Depends(require_
 
 def _tc_ids(payload: dict) -> set[int]:
     return {t["tcId"] for g in payload.get("testGroups", []) for t in g.get("tests", [])}
+
+
+def _cases_by_tc_id(payload: dict | None) -> dict[int, dict]:
+    if not payload:
+        return {}
+    return {
+        t["tcId"]: t
+        for g in payload.get("testGroups", [])
+        for t in g.get("tests", [])
+        if isinstance(t.get("tcId"), int)
+    }
+
+
+def _disclose(tests: list[dict], vs) -> list[dict]:
+    """Attach `expected`/`provided` to failing test cases when the client asked.
+
+    Spec 12.17.4: with showExpected set on the submission, the server returns an
+    `expected` and a `provided` object "for any failing test cases" — passing cases
+    disclose nothing.
+
+    [HUMAN REVIEW] This hands the answer key for failed cases back to the DUT. The
+    spec sanctions it as a diagnostic aid, but it is a real disclosure channel: a
+    client may submit deliberately wrong answers, read the expected values here,
+    and resubmit them. Gate or disable it if that trade is not acceptable.
+    """
+    if not vs.show_expected:
+        return tests
+    expected, provided = _cases_by_tc_id(vs.expected), _cases_by_tc_id(vs.response)
+    return [
+        test if test.get("result") == "passed" else {
+            **test,
+            "expected": expected.get(test.get("tcId")),
+            "provided": provided.get(test.get("tcId")),
+        }
+        for test in tests
+    ]
 
 
 def _validate_submission(response: dict, vs) -> list[int]:
@@ -131,6 +188,9 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
         raise HTTPException(status.HTTP_409_CONFLICT, "vector set prompt has not been retrieved")
 
     response = unwrap(body)
+    # showExpected is a protocol flag, not a test-case answer (spec 12.17.5.1).
+    # Strip it here so it never reaches the crypto boundary as a response field.
+    vs.show_expected = response.pop("showExpected", False) is True
     vs.missing_tc_ids = _validate_submission(response, vs)
     vs.response = response
     vs.validation = None  # clear any prior disposition while we re-validate
@@ -190,6 +250,6 @@ def get_results(testSessionId: int, vectorSetId: int, _: int = Depends(require_s
     results = {
         "vsId": vs.vs_id,  # our resource id, not the stub fixture's baked-in vsId
         "disposition": vs.disposition(),
-        "tests": base.get("tests", []),
+        "tests": _disclose(base.get("tests", []), vs),
     }
     return wrap({"results": results})
