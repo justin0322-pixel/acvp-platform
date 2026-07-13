@@ -9,7 +9,12 @@ Spec 12.17.3: "Cancel testing for a specific Vector Set."
 The security-relevant part is the one the spec does NOT spell out: cancelling a
 vector set must not become a way to make a failing session pass by deleting the
 inconvenient vector sets. A session with cancelled testing can never be certified.
+
+The other part the spec does not spell out is timing: generation and validation run
+on background threads, so a cancel can land while one is in flight. The cancel must
+win — see the two "not_undone" tests at the bottom and VectorSet.settle.
 """
+import threading
 import time
 
 import pytest
@@ -17,6 +22,8 @@ import pytest
 from helpers import await_generation, golden_response, registration, session_headers
 
 from app.core.config import get_settings
+from app.crypto_boundary import client as boundary
+from app.store import store
 
 _FIXTURE = get_settings().fixtures_dir / "ML-KEM-keyGen-FIPS203" / "prompt.json"
 
@@ -97,6 +104,69 @@ def test_cancel_vector_set_is_idempotent_404(client, acv_version, auth_header):
     await_generation(sid, int(vs_urls[0].rsplit("/", 1)[1]))
     assert client.delete(vs_urls[0], headers=sh).status_code == 200
     assert client.delete(vs_urls[0], headers=sh).status_code == 404
+
+
+# --- cancel while a background task is in flight ---------------------------------
+#
+# Generation and validation run on threads (app.core.jobs). Before VectorSet.settle,
+# both wrote `vs.status` unconditionally on completion — so a cancel that landed
+# mid-flight was silently overwritten and the vector set came back from the dead.
+# With the fixture provider the window is only microseconds wide; with the real NIST
+# GenVal engine it is seconds. These tests hold the window open on purpose.
+
+def _blocked(monkeypatch, name):
+    """Stall crypto_boundary.<name> until the returned event is set."""
+    real, release = getattr(boundary, name), threading.Event()
+
+    def stalled(*args, **kwargs):
+        release.wait(5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(boundary, name, stalled)
+    return release
+
+
+def _assert_stays_cancelled(client, sid, vs_url, sh, seconds=0.5):
+    """The background thread has been released; give it every chance to misbehave."""
+    vs = store.get_vector_set(store.get_session(sid), int(vs_url.rsplit("/", 1)[1]),
+                              include_cancelled=True)
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        assert vs.status == "cancelled", f"cancel was undone: status became {vs.status!r}"
+        time.sleep(0.01)
+    # And the cancel still holds at the API surface.
+    assert client.get(vs_url, headers=sh).status_code == 404
+    listing = client.get(f"/acvp/v1/testSessions/{sid}/vectorSets", headers=sh).json()[1]
+    assert listing["vectorSetUrls"] == []
+
+
+def test_cancel_during_generation_is_not_undone(client, acv_version, auth_header, monkeypatch):
+    release = _blocked(monkeypatch, "generate")
+    sid, vs_urls, sh = _register(client, acv_version, auth_header)
+
+    # Generation is stalled, so the vector set is still "generating" — cancel it now.
+    assert client.delete(vs_urls[0], headers=sh).status_code == 200
+
+    release.set()  # the generate thread now completes and tries to write "ready"
+    _assert_stays_cancelled(client, sid, vs_urls[0], sh)
+
+
+def test_cancel_during_validation_is_not_undone(client, acv_version, auth_header, monkeypatch):
+    sid, vs_urls, sh = _register(client, acv_version, auth_header)
+    vs_url = vs_urls[0]
+    vs_id = int(vs_url.rsplit("/", 1)[1])
+    await_generation(sid, vs_id)
+    client.get(vs_url, headers=sh)  # retrieve the prompt so results may be submitted
+
+    release = _blocked(monkeypatch, "validate")
+    submission = [{"acvVersion": acv_version}, golden_response(vs_id)]
+    assert client.post(vs_url + "/results", json=submission, headers=sh).status_code == 200
+
+    # Grading is stalled — cancel while the validate thread is in flight.
+    assert client.delete(vs_url, headers=sh).status_code == 200
+
+    release.set()  # the validate thread now completes and tries to write "disposition"
+    _assert_stays_cancelled(client, sid, vs_url, sh)
 
 
 def test_cancelling_a_vector_set_cannot_buy_a_pass(client, acv_version, auth_header):

@@ -35,13 +35,16 @@ def _start_generation(session, vs: VectorSet) -> None:
                 vs.registration, vs.mode_folder,
                 session_id=session.session_id, vs_id=vs.vs_id,
             )
-            vs.prompt = result.prompt
-            vs.internal_projection = result.internal_projection  # NIST validate needs this
-            vs.expected = result.expected
-            vs.status = "ready"
+            # settle(), not a bare assignment: the client may have cancelled this
+            # vector set while we were generating. See VectorSet.settle.
+            vs.settle(
+                prompt=result.prompt,
+                internal_projection=result.internal_projection,  # NIST validate needs this
+                expected=result.expected,
+                status="ready",
+            )
         except Exception as exc:  # engine/config/artifact failure -> disposition "error"
-            vs.error = str(exc)
-            vs.status = "error"
+            vs.settle(error=str(exc), status="error")
 
     run_background(_gen)
 
