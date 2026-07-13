@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Set FIXTURES_DIR_OVERRIDE to point at the golden vectors explicitly
     # (e.g. when running in a container). Otherwise resolved relative to the repo.
     fixtures_dir_override: str | None = None
-
+    
     # --- TLS / mTLS (ACVP spec §7, §6 ACV Proxy pattern) -----------------------
     # Set TLS_ENABLED=true to activate TLS termination (via Nginx or uvicorn).
     # Set MTLS_ENABLED=true to additionally require a client certificate on all
