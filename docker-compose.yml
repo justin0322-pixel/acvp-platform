@@ -6,14 +6,18 @@ services:
     build:
       context: ./backend
       target: backend
-    ports:
-      - "8000:8000"
+    # SECURITY: Do NOT expose port 8000 to the host. The backend is only
+    # reachable via the Docker internal network through the Nginx proxy.
+    # This prevents attackers from bypassing TLS/mTLS by connecting directly.
+    expose:
+      - "8000"
     environment:
       - JWT_SECRET=change-me-dev-only
       - DEMO_PASSWORD=acvp-demo
       - FIXTURES_DIR_OVERRIDE=/fixtures
       - USE_NIST_GENVAL=true # grade with the real engine; false = fixture stub
       - MTLS_ENABLED=true
+      - PROXY_SECRET=CHANGE-ME-GENERATE-A-REAL-SECRET
     volumes:
       - ./tests/fixtures/nist:/fixtures:ro # golden vectors, read-only (fallback + tests)
     healthcheck:

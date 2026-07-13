@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # Paths that are exempt from the mTLS client-cert requirement even when
     # MTLS_ENABLED=true (health check must remain reachable by the orchestrator).
     mtls_exempt_paths: list[str] = ["/health"]
+    # Shared secret between Nginx and the backend.  Nginx injects this value in
+    # the X-Proxy-Secret header; the middleware rejects any request where the
+    # header is missing or does not match.  This prevents an attacker from
+    # connecting directly to uvicorn (:8000) and forging X-Client-Verify headers.
+    # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+    proxy_secret: str | None = None
 
     # --- Crypto boundary (NIST ACVP-Server GenVal) ------------------------------
     # When false (default), the boundary stands in with the vendored NIST fixtures
