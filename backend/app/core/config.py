@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # leaves the length to the server; NIST's own deployment uses ~30 days.
     vector_set_expire_seconds: int = 30 * 24 * 3600
     demo_password: str = "acvp-demo"
+    # Seed a starting catalogue of vendors/modules/OEs (see core/seed.py). Without
+    # one, a fresh server has nothing certifiable to bind a certificate to.
+    seed_demo_metadata: bool = True
 
     # Browser origins allowed to call the API (the web client dev servers).
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

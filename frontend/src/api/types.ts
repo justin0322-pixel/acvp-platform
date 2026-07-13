@@ -6,10 +6,35 @@ export interface LoginResult {
   sizeConstraint?: number;
 }
 
+/** Spec 12.14.1: the server's catalogue of what it can test (`name`, not `algorithm`). */
 export interface Algorithm {
-  algorithm: string;
+  id: number;
+  name: string;
   mode: string;
   revision: string;
+}
+
+/** Spec 12.5.2: every resource listing is a paged response. */
+export interface Paged<T> {
+  totalCount: number;
+  incomplete: boolean;
+  links: { first: string; next: string | null; prev: string | null; last: string };
+  data: T[];
+}
+
+/** Spec 12.11 / 12.12 — what a certificate binds to. */
+export interface ModuleResource {
+  url: string;
+  name: string;
+  version?: string;
+  type?: string;
+  description?: string;
+  vendorUrl?: string;
+}
+
+export interface OeResource {
+  url: string;
+  name: string;
 }
 
 /** The test-session object returned by POST /testSessions (carries accessToken). */

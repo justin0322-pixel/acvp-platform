@@ -16,6 +16,11 @@ DISPOSITIONS = frozenset(
     {"passed", "failed", "incomplete", "unreceived", "missing", "expired", "error"}
 )
 
+# Metadata resources (spec 12.8-12.13). They share one shape — a collection of
+# JSON objects addressed by /acvp/v1/{resource}/{id} — so one generic store and
+# one generic router serve all five.
+METADATA_RESOURCES = ("vendors", "persons", "modules", "oes", "dependencies")
+
 
 @dataclass
 class VectorSet:
@@ -108,6 +113,8 @@ class Store:
         self._request_ids = count(1)
         self._validations: dict[int, dict[str, Any]] = {}
         self._validation_ids = count(1)
+        self._metadata: dict[str, dict[int, dict]] = {r: {} for r in METADATA_RESOURCES}
+        self._metadata_ids: dict[str, Any] = {r: count(1) for r in METADATA_RESOURCES}
 
     def create_session(self) -> TestSession:
         sid = next(self._session_ids)
@@ -145,16 +152,46 @@ class Store:
             return None
         return vs
 
-    def new_request(self) -> int:
+    def new_request(self, owner: str | None = None) -> int:
         rid = next(self._request_ids)
-        self._requests[rid] = {"status": "processing", "location": None}
+        self._requests[rid] = {"status": "processing", "location": None, "owner": owner}
         return rid
 
     def get_request(self, rid: int) -> dict | None:
         return self._requests.get(rid)
 
+    def list_requests(self, owner: str | None = None) -> list[tuple[int, dict]]:
+        """The current user's requests, newest first (spec 12.7.1)."""
+        return [
+            (rid, req) for rid, req in reversed(self._requests.items())
+            if owner is None or req.get("owner") == owner
+        ]
+
     def complete_request(self, rid: int, location: str) -> None:
-        self._requests[rid] = {"status": "approved", "location": location}
+        # Update in place: overwriting the dict would drop the owner.
+        self._requests[rid].update(status="approved", location=location)
+
+    # --- metadata resources (spec 12.8-12.13) -----------------------------------
+
+    def add_metadata(self, resource: str, obj: dict) -> int:
+        rid = next(self._metadata_ids[resource])
+        self._metadata[resource][rid] = obj
+        return rid
+
+    def get_metadata(self, resource: str, rid: int) -> dict | None:
+        return self._metadata[resource].get(rid)
+
+    def list_metadata(self, resource: str) -> list[tuple[int, dict]]:
+        return list(self._metadata[resource].items())
+
+    def replace_metadata(self, resource: str, rid: int, obj: dict) -> bool:
+        if rid not in self._metadata[resource]:
+            return False
+        self._metadata[resource][rid] = obj
+        return True
+
+    def delete_metadata(self, resource: str, rid: int) -> bool:
+        return self._metadata[resource].pop(rid, None) is not None
 
     def add_validation(self, session_id: int, created_on: str, certify: dict) -> int:
         """Record a validation (certificate) resource produced by certification.

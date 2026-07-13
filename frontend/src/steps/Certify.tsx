@@ -1,25 +1,25 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { certify, getRequest, getSessionResults, idFromUrl } from "../api/client";
+import { certify, getRequest, getSessionResults, idFromUrl, listModules, listOes } from "../api/client";
 import type { SessionObject, SessionResults, RequestObject } from "../api/types";
 import { StepHead, Button, Field, Notice, Json } from "../ui";
 
-const MODULES = [
-  { url: "/acvp/v1/modules/1", name: "System.Security.Cryptography.MLKem (FIPS 203) - v1.0" },
-  { url: "/acvp/v1/modules/2", name: "QuantumShield ML-DSA (.NET 10) - v2.1" },
-  { url: "/acvp/v1/modules/3", name: "PostQuantum Crypto-Suite - v10.0" }
-];
-
-const OES = [
-  { url: "/acvp/v1/oes/1", name: "Windows 11 (x64) AMD Ryzen 9" },
-  { url: "/acvp/v1/oes/2", name: "Ubuntu 24.04 LTS (x86_64) Intel Xeon" },
-  { url: "/acvp/v1/oes/3", name: "macOS Sequoia 15.0 (ARM64) Apple M3" }
-];
-
 export function Certify({ session, loginToken }: { session: SessionObject; loginToken: string }) {
   const id = idFromUrl(session.url);
-  const [moduleUrl, setModuleUrl] = useState(MODULES[0].url);
-  const [oeUrl, setOeUrl] = useState(OES[0].url);
+
+  // The module and OE come from the server's catalogue (GET /modules, /oes). They
+  // are not ours to invent: certification refuses a reference that does not
+  // resolve, so a made-up URL here would simply be rejected.
+  const modules = useQuery({ queryKey: ["modules"], queryFn: () => listModules(loginToken) });
+  const oes = useQuery({ queryKey: ["oes"], queryFn: () => listOes(loginToken) });
+  const moduleList = modules.data?.data ?? [];
+  const oeList = oes.data?.data ?? [];
+
+  const [pickedModule, setPickedModule] = useState("");
+  const [pickedOe, setPickedOe] = useState("");
+  const moduleUrl = pickedModule || moduleList[0]?.url || "";
+  const oeUrl = pickedOe || oeList[0]?.url || "";
+  const catalogueReady = !!moduleUrl && !!oeUrl;
 
   const summary = useQuery({
     queryKey: ["session-results", id],
@@ -27,7 +27,7 @@ export function Certify({ session, loginToken }: { session: SessionObject; login
     refetchInterval: 2000,
   });
   const s = summary.data as SessionResults | undefined;
-  const canCertify = !session.isSample && !!s?.passed;
+  const canCertify = !session.isSample && !!s?.passed && catalogueReady;
 
   const certifyM = useMutation({
     mutationFn: () => certify(id, { moduleUrl, oeUrl }, session.accessToken),
@@ -52,8 +52,8 @@ export function Certify({ session, loginToken }: { session: SessionObject; login
 
 Generated At: ${new Date().toLocaleString()}
 Session ID: #${id}
-Module: ${MODULES.find((m) => m.url === moduleUrl)?.name ?? moduleUrl}
-Operating Environment: ${OES.find((oe) => oe.url === oeUrl)?.name ?? oeUrl}
+Module: ${moduleList.find((m) => m.url === moduleUrl)?.name ?? moduleUrl}
+Operating Environment: ${oeList.find((oe) => oe.url === oeUrl)?.name ?? oeUrl}
 Status: ✅ APPROVED / CERTIFIED
 Approved Resource URL: ${validation}
 Request Tracker URL: ${requestUrl}
@@ -86,18 +86,19 @@ Request Tracker URL: ${requestUrl}
           <div className="card-h"><div><h2>Certification request</h2>
             <div className="desc">Bind the module & operating environment</div></div></div>
           <div className="card-b stack">
-            <Field label="Cryptographic Module" hint={`Binds module at: ${moduleUrl}`}>
-              <select className="input" value={moduleUrl} onChange={(e) => setModuleUrl(e.target.value)}>
-                {MODULES.map((m) => (
+            <Field label="Cryptographic Module" hint={`Binds module at: ${moduleUrl || "—"}`}>
+              <select className="input" value={moduleUrl}
+                      onChange={(e) => setPickedModule(e.target.value)}>
+                {moduleList.map((m) => (
                   <option key={m.url} value={m.url}>
-                    {m.name}
+                    {m.version ? `${m.name} - v${m.version}` : m.name}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field label="Operating Environment" hint={`Binds environment at: ${oeUrl}`}>
-              <select className="input" value={oeUrl} onChange={(e) => setOeUrl(e.target.value)}>
-                {OES.map((oe) => (
+            <Field label="Operating Environment" hint={`Binds environment at: ${oeUrl || "—"}`}>
+              <select className="input" value={oeUrl} onChange={(e) => setPickedOe(e.target.value)}>
+                {oeList.map((oe) => (
                   <option key={oe.url} value={oe.url}>
                     {oe.name}
                   </option>
@@ -105,6 +106,12 @@ Request Tracker URL: ${requestUrl}
               </select>
             </Field>
 
+            {!modules.isLoading && !oes.isLoading && !catalogueReady && (
+              <Notice kind="err">
+                The server has no registered modules or operating environments, so there is
+                nothing to bind a certificate to. Register them with POST /modules and /oes.
+              </Notice>
+            )}
             {!session.isSample && !s?.passed && (
               <Notice kind="info">Waiting for the session to pass — complete the submit &amp; results steps first.</Notice>
             )}

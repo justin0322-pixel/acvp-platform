@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from pydantic import ValidationError
 
+from app.core import refs
 from app.core.auth import create_access_token, current_subject, require_session_access
 from app.core.config import get_settings
 from app.core.jobs import run_background, submit
@@ -178,11 +179,23 @@ def certify_test_session(
         certify = CertifyPayload(**unwrap(body))
     except ValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, _first_error(exc))
+    # The authorization gate comes first: a session that cannot be certified gets
+    # the same 403 whether or not its module exists, so this is not a probe for
+    # which metadata resources are present.
     if not (_session_passed(session) and _session_publishable(session)):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "test session must be publishable and passed before certification",
         )
+    # [HUMAN REVIEW] A certificate states that *this module*, in *this environment*,
+    # passed. If the references are never checked, it states nothing at all.
+    for field, target in (("moduleUrl", "modules"), ("oeUrl", "oes")):
+        url = getattr(certify, field)
+        if url is not None and not refs.exists(url, resource=target):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{field} does not resolve to an existing {target} resource: {url}",
+            )
 
     recorded = certify.model_dump(exclude_none=True)
 
@@ -190,7 +203,10 @@ def certify_test_session(
         vid = store.add_validation(session_id, _iso(datetime.now(timezone.utc)), recorded)
         store.complete_request(rid, f"/acvp/v1/validations/{vid}")
 
-    rid = submit(_run)
+    # The request belongs to the *user* who owns the session, not to the session
+    # token that authorized this call — "session:{id}" is a credential scope, not
+    # an identity, and GET /requests lists "requests for the current user" (12.7.1).
+    rid = submit(_run, owner=session.owner)
     return wrap({"url": f"/acvp/v1/requests/{rid}", "status": "processing"})
 
 

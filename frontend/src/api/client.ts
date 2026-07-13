@@ -1,7 +1,7 @@
 import { wrap } from "./envelope";
 import type {
-  Algorithm, Envelope, LoginResult, SessionObject, SessionInfo,
-  VectorSetResponse, VectorResults, SessionResults, RequestObject, Prompt,
+  Algorithm, Envelope, LoginResult, ModuleResource, OeResource, Paged, SessionObject,
+  SessionInfo, VectorSetResponse, VectorResults, SessionResults, RequestObject, Prompt,
 } from "./types";
 
 /**
@@ -50,6 +50,13 @@ export function login(password: string, accessToken?: string): Promise<LoginResu
 
 export const listAlgorithms = (loginToken: string) =>
   call<{ algorithms: Algorithm[] }>("/algorithms", {}, loginToken);
+
+/* ---- metadata: what a certificate binds to (spec 12.11 / 12.12) ---- */
+export const listModules = (loginToken: string) =>
+  call<Paged<ModuleResource>>("/modules", {}, loginToken);
+
+export const listOes = (loginToken: string) =>
+  call<Paged<OeResource>>("/oes", {}, loginToken);
 
 /* ---- test session (created with the LOGIN token) ---- */
 export function createSession(
