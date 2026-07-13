@@ -60,12 +60,18 @@ The FIPS 203 team's trimmed fork is the engine of record (gen-val reduced to ML-
 
 ```bash
 # 0. Prereq: install the .NET 8 SDK (dotnet --version should print 8.x).
+#    dotnet is often outside a non-login shell's PATH — if `which dotnet` is empty:
+#      export PATH="/usr/local/share/dotnet:$PATH"
 
-# 1. Clone the engine source (anywhere; a sibling dir is fine):
+# 1. Clone the engine source (anywhere; a sibling dir is fine) and check out the PINNED commit.
+#    The engine grades our vector sets, so it is pinned exactly like the golden vectors are —
+#    build-genval.sh refuses to build anything else. The pin lives in that script.
 git clone https://github.com/hhhylaiii/ACVP-Server.git ../ACVP-Server
+git -C ../ACVP-Server checkout 61b549e51ca18c75c303cf83f6fb58f40c1de700
 
 # 2. Publish the runner + Orleans host into backend/nist-bin/ (gitignored):
 scripts/nist/build-genval.sh ../ACVP-Server        # or: NIST_SRC=../ACVP-Server scripts/nist/build-genval.sh
+#    Writes backend/nist-bin/ENGINE_SOURCE.txt recording which commit the binaries came from.
 
 # 3. Start Orleans in its own shell and leave it running:
 scripts/nist/start-orleans.sh

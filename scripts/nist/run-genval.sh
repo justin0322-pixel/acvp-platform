@@ -6,8 +6,11 @@
 #   scripts/nist/run-genval.sh generate registration.json
 #   scripts/nist/run-genval.sh validate internalProjection.json response.json
 #
-# generate writes prompt.json + internalProjection.json + expectedResults.json into
-# the current directory; validate writes validation.json. Run it from a scratch dir.
+# The runner writes its output NEXT TO THE INPUT FILE, not into the current directory
+# (GenValRunner.cs takes Path.GetDirectoryName of the registration/response file):
+#   generate <dir>/registration.json       -> <dir>/{prompt,internalProjection,expectedResults}.json
+#   validate <dir>/internalProjection.json <dir2>/response.json -> <dir2>/validation.json
+# So pass paths inside a scratch dir; cd-ing to one is not enough.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

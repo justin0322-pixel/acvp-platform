@@ -80,8 +80,9 @@ class NistCliGenValProvider(GenValProvider):
         dotnet = shutil.which("dotnet")
         if dotnet is None:
             raise GenValConfigurationError(
-                "dotnet runtime not found. Install .NET 8 SDK/runtime and build the "
-                "NIST GenValAppRunner (scripts/nist/build_nist_genval.sh)."
+                "dotnet runtime not found on PATH. Install the .NET 8 SDK/runtime and build "
+                "the NIST GenValAppRunner (scripts/nist/build-genval.sh). Note dotnet is often "
+                "installed outside a non-login shell's PATH (e.g. /usr/local/share/dotnet)."
             )
         if not self.settings.runner_dll.exists():
             raise GenValConfigurationError(
