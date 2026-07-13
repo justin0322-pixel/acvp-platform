@@ -2,9 +2,6 @@
 
 This repository implements the **server-client (protocol) layer** of an Automated Cryptographic Validation Protocol (ACVP) platform, specifically targeting **FIPS 203 (ML-KEM)** and **FIPS 204 (ML-DSA)**.
 
-> **⚠️ CRITICAL BOUNDARY:** This repository **never implements cryptography**. 
-> The cryptographic math is owned by separate teams and is called as a language-agnostic black box across a JSON-based process boundary. This repo focuses entirely on the ACVP REST protocol, test session state machines, request-retry polling, JWT authentication, and the frontend UI.
-
 For development process, sprint plans, and internal conventions, see:
 * `docs/dev-process.md` (Sprint plans, architecture decisions, and checklists)
 * `CLAUDE.md` (Working context)
