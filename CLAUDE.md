@@ -125,15 +125,28 @@ separate polling point from the results poll.
 
 ## Current status / open dependencies
 
-- **ML-KEM (FIPS 203) language is confirmed: C#/.NET 10** (in-box `System.Security.Cryptography.MLKem`).
-  ⚠️ ML-KEM is **not supported on macOS** — their module runs on Linux/Docker. No impact on us (still a
-  JSON process boundary), but the integration test environment needs Docker.
-- **ML-DSA (FIPS 204) language: not yet decided** (.NET's ML-DSA is still experimental). Still does not
-  block us — same JSON boundary.
-- **Boundary mechanism is aligned**: 203/204 expose a CLI that reads a JSON prompt on **stdin** and writes
-  a JSON response on **stdout**, selected via a `SUT_COMMAND` env var. Our `crypto_boundary` calls that.
-- **Open contract risk**: ML-KEM encapsulation/keyCheck can't inject the randomness `m` via native .NET,
-  so KAT in that direction is limited — tracked as an M3 (full-mode) risk.
+- **One engine, both algorithms**: 203 and 204 both wrap the same **NIST ACVP-Server GenVal engine +
+  Orleans silo** (C#/**.NET 8** — `net8.0`, not .NET 10). It handles ML-KEM *and* ML-DSA, and it uses
+  NIST's own reference crypto, **not** the in-box `System.Security.Cryptography.MLKem` — so the engine
+  runs fine on macOS/Linux. (The old "ML-KEM not supported on macOS" note was about the in-box .NET API
+  and does not apply to the engine.)
+- **Boundary mechanism (verified 2026-07-14 against both repos)**: a **file-based CLI**, not stdin/stdout.
+  There is no `SUT_COMMAND`. `app/crypto_boundary/genval/` drives the published GenValApp runner:
+  - generate: `dotnet GenValApp.dll -g registration.json` → writes `prompt.json` + `internalProjection.json` + `expectedResults.json`
+  - validate: `dotnet GenValApp.dll -n internalProjection.json -b response.json` → writes `validation.json`
+  - check:    `dotnet GenValApp.dll -c registration.json`
+
+  NIST validate needs the **`internalProjection` (the answer key)**, not just the prompt — so
+  `store.VectorSet` persists it at generation time. Enable the real engine with `USE_NIST_GENVAL=true`;
+  the default fixture provider keeps the flow runnable with no .NET.
+- **Team repos**: 203 = `hhhylaiii/ACVP-Server` (trimmed NIST fork; the engine source of record).
+  204 = `William901105/NCCU-ACVP-Server`, branch `feat/nist-genval-adapter` — it vendored the NIST server
+  and wrote the Python genval provider **our `crypto_boundary/genval/` is adapted from**. Note 204 has a
+  second, `local-python` native ML-DSA oracle path behind its `workflowProfile`; that is *their* fallback,
+  not our contract.
+- **Open contract risk**: ML-KEM encapsulation/keyCheck can't inject the randomness `m` via the in-box
+  .NET API, so KAT in that direction is limited **for an IUT built on that API** — tracked as an M3
+  (full-mode) risk. It does not affect our server-side generation, which uses the NIST engine.
 - The generate/validate JSON contract (task I0) is the key cross-team deliverable; the fixtures' schema
   IS that contract. See `docs/dev-process.md`.
 

@@ -42,11 +42,16 @@
 - [ ] **失敗重送** `PUT .../results`（整個 vectorSet 重送）。
 - [ ] **次要**：paging（清單分頁）、`POST /large`（可延後）。
 
-### 已知現況（2026/06）
-- **ML-KEM（203 組）語言已確定：C#/.NET 10**（內建 `System.Security.Cryptography.MLKem`）。⚠️ **macOS 不支援 ML-KEM**，他們的模組需在 **Linux / Docker** 跑；對我們無影響（仍經 JSON 行程邊界），但整合測試環境要備 Docker。
-- **ML-DSA（204 組）語言**：尚未確認（.NET 的 ML-DSA 仍 experimental）。
-- **接點機制已對齊**：203/204 用 **stdin 收 JSON prompt → stdout 吐 JSON response** 的 CLI，由 `SUT_COMMAND` 環境變數指定執行檔。
-- ⚠️ **待釘合約風險**：ML-KEM 的 encapsulation / keyCheck 方向，.NET 原生 API 無法注入隨機數 `m`，KAT 受限——列為 M3「全模式」的風險。
+### 已知現況（2026/07 更新，已對兩個 repo 實查）
+- **一套引擎、兩個演算法**：203 與 204 包的是**同一套 NIST ACVP-Server GenVal 引擎 + Orleans silo**（C#/**.NET 8**，`net8.0`，不是 .NET 10）。它同時處理 ML-KEM 與 ML-DSA，且用的是 NIST 自己的參考實作，**不是**內建的 `System.Security.Cryptography.MLKem`——所以引擎在 macOS / Linux 都跑得動。（舊註記「macOS 不支援 ML-KEM」講的是內建 .NET API，對引擎不適用。）
+- **接點機制：檔案式 CLI，不是 stdin/stdout**。`SUT_COMMAND` 這個東西不存在，也沒有人實作過。實際合約是：
+  - 出題：`dotnet GenValApp.dll -g registration.json` → 產出 `prompt.json` + `internalProjection.json` + `expectedResults.json`
+  - 批改：`dotnet GenValApp.dll -n internalProjection.json -b response.json` → 產出 `validation.json`
+  - 檢查：`dotnet GenValApp.dll -c registration.json`
+
+  NIST 批改需要 **`internalProjection`（標準答案）**，不是只有 prompt——所以 `store.VectorSet` 在出題時就把它存下來。用 `USE_NIST_GENVAL=true` 開啟真引擎；預設走 fixture provider，無 .NET 也能跑完整流程。
+- **對方 repo**：203 = `hhhylaiii/ACVP-Server`（精簡版 NIST fork，引擎的 source of record）。204 = `William901105/NCCU-ACVP-Server`，branch `feat/nist-genval-adapter`——它 vendored 了 NIST server，並寫了 Python genval provider，**我們的 `crypto_boundary/genval/` 就是從它改來的**。注意 204 另有一條 `local-python` 原生 ML-DSA oracle 路徑（由它的 `workflowProfile` 切換），那是**他們的**後備，不是我們的合約。
+- ⚠️ **待釘合約風險**：ML-KEM 的 encapsulation / keyCheck 方向，**內建 .NET API** 無法注入隨機數 `m`，所以**以該 API 實作的 IUT** 在這個方向的 KAT 受限——列為 M3「全模式」的風險。這不影響我們 server 端出題（走 NIST 引擎）。
 
 ---
 
@@ -86,7 +91,7 @@
 ### 前後端綜效
 - [ ] FastAPI 自動產生 OpenAPI → 用 **openapi-typescript** 生成前端 TS 型別，前後端共用同一份 schema 真相
 
-> **語言現況**：ML-KEM（203 組）已確定用 **C#/.NET 10**；ML-DSA（204 組）未定。**對我們無影響**——兩者都經「JSON 進、JSON 出」的行程邊界呼叫（`SUT_COMMAND` 指定執行檔），語言對我們透明。我們維持 FastAPI，不因對方語言改棧。**這也不阻塞我們開工**（見 §3 stub-first，用 NIST fixtures 當替身）。
+> **語言現況**：203 與 204 共用同一套 NIST GenVal 引擎（**C#/.NET 8**）。**對我們無影響**——我們經「JSON 進、JSON 出」的行程邊界呼叫它（檔案式 `GenValApp.dll` CLI，見〈已知現況〉），語言對我們透明。我們維持 FastAPI，不因對方語言改棧。**這也不阻塞我們開工**（見 §3 stub-first，用 NIST fixtures 當替身）。
 
 ---
 
