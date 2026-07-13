@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 
 from app.core.auth import require_session_access
@@ -11,6 +13,17 @@ router = APIRouter()
 # Seconds the client should wait before re-requesting a not-yet-ready vectorSet.
 # Server-determined per the spec; 30 matches the spec's messaging example.
 RETRY_SECONDS = 30
+
+
+def _expiry(vs) -> str | None:
+    """The vector set's submission deadline, in the spec's format.
+
+    Spec 14 pins this to "YYYY-MM-DD HH:MM:SS" (UTC) — deliberately NOT the
+    ISO-8601 form the test session's createdOn/expiresOn use.
+    """
+    if vs.expires_at is None:
+        return None
+    return vs.expires_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _session_or_404(session_id: int):
@@ -42,7 +55,8 @@ def get_vector_set(testSessionId: int, vectorSetId: int, _: int = Depends(requir
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
-    if vs.status == "expired":
+    if vs.expired():
+        # Spec 14: past the deadline the vectors are no longer served.
         return wrap({"vsId": vs.vs_id, "status": "expired"})
     if vs.status == "generating" or vs.prompt is None:
         # Vectors not ready yet: tell the client to poll again (a separate
@@ -50,7 +64,7 @@ def get_vector_set(testSessionId: int, vectorSetId: int, _: int = Depends(requir
         return wrap({"vsId": vs.vs_id, "retry": RETRY_SECONDS})
     if vs.status == "ready":
         vs.status = "prompt_retrieved"
-    return wrap({**vs.prompt, "vsId": vs.vs_id})
+    return wrap({**vs.prompt, "vsId": vs.vs_id, "expiry": _expiry(vs)})
 
 
 @router.get("/testSessions/{testSessionId}/vectorSets/{vectorSetId}/expected")
@@ -109,7 +123,7 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
     vs = store.get_vector_set(session, vs_id)
     if vs is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
-    if vs.status == "expired":
+    if vs.expired():
         # Spec: (re)submission MUST occur prior to expiry.
         raise HTTPException(status.HTTP_403_FORBIDDEN, "vector set has expired")
     if vs.status in ("generating", "ready") or vs.prompt is None:

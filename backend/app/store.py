@@ -4,6 +4,7 @@ Replace with PostgreSQL + SQLAlchemy for deployment (see CLAUDE.md). The shapes
 here intentionally mirror a persistent model so the swap is mechanical.
 """
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from itertools import count
 from typing import Any
 
@@ -33,6 +34,20 @@ class VectorSet:
     internal_projection: dict | None = None  # answer key from generation; NIST validate needs it
     expected: dict | None = None       # expectedResults, disclosed only for isSample
     error: str | None = None           # set when generation/validation raised
+    expires_at: datetime | None = None  # submission deadline (spec 14)
+
+    def expired(self) -> bool:
+        """True once the submission deadline has passed (spec 14).
+
+        Derived from the clock rather than swept by a background job, so it is
+        correct the moment it is asked. `status == "expired"` stays supported as
+        an explicit terminal override.
+        """
+        if self.status == "expired":
+            return True
+        if self.expires_at is None:
+            return False
+        return datetime.now(timezone.utc) >= self.expires_at
 
     def disposition(self) -> str:
         """Map lifecycle state to an ACVP disposition value (see DISPOSITIONS).
@@ -45,6 +60,10 @@ class VectorSet:
             return "expired"
         if self.status == "error":
             return "error"  # generation or validation failed (see self.error)
+        if self.response is None and self.expired():
+            # Spec: expired == the responses never arrived before the deadline. A
+            # grade earned in time is not retroactively voided by the deadline.
+            return "expired"
         if self.missing_tc_ids:
             return "missing"  # submission lacked some of the prompt's test cases
         if self.validation is not None:

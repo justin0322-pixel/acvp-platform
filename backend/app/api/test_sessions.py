@@ -92,6 +92,7 @@ def create_test_session(body: list = Body(...), _: str = Depends(current_subject
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
         folder = _MODE_FOLDER[(capability.algorithm, capability.mode, capability.revision)]
         vs = store.add_vector_set(session, folder)
+        vs.expires_at = now + timedelta(seconds=get_settings().vector_set_expire_seconds)
         # What generate() receives. NIST GenVal's registration input is the
         # capabilities plus the resource vsId and the session's isSample flag
         # (its shape matches our NIST registration.json fixtures verbatim).
