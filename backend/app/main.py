@@ -6,8 +6,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import algorithms, login, metadata, requests, test_sessions, validations, vector_sets
 from app.core.config import get_settings
+from app.core.seed import seed_demo_metadata
 
 app = FastAPI(title="ACVP server (server-client layer)", version="0.1.0")
+
+seed_demo_metadata()
 
 # Allow the web client (dev server) to call the API from the browser.
 app.add_middleware(

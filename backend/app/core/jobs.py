@@ -12,12 +12,13 @@ from collections.abc import Awaitable, Callable
 from app.store import store
 
 
-def submit(work: Callable[[int], Awaitable[None]]) -> int:
+def submit(work: Callable[[int], Awaitable[None]], *, owner: str | None = None) -> int:
     """Register a request and run `work(request_id)` in the background.
 
-    For work polled via `GET /requests/{id}` (e.g. response validation).
+    For work polled via `GET /requests/{id}` (e.g. response validation). `owner` is
+    the JWT subject the request belongs to; it scopes the request listing.
     """
-    rid = store.new_request()
+    rid = store.new_request(owner)
 
     def runner() -> None:
         asyncio.run(work(rid))
