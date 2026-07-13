@@ -1,55 +1,80 @@
-# ACVP validation platform — server / client
+# ACVP Validation Platform (Server-Client Protocol Layer)
 
-The server-client (protocol) layer of an ACVP validation platform for FIPS 203 (ML-KEM)
-and FIPS 204 (ML-DSA). The cryptography is owned by two separate teams and called as a
-language-agnostic black box across a process boundary — this repo never implements crypto.
+This repository implements the **server-client (protocol) layer** of an Automated Cryptographic Validation Protocol (ACVP) platform, specifically targeting **FIPS 203 (ML-KEM)** and **FIPS 204 (ML-DSA)**.
 
-See `CLAUDE.md` for the working context, `.claude/skills/acvp-protocol/SKILL.md` for the
-protocol rules, and `docs/dev-process.md` for the sprint plan and checklists.
+> **⚠️ CRITICAL BOUNDARY:** This repository **never implements cryptography**. 
+> The cryptographic math is owned by separate teams and is called as a language-agnostic black box across a JSON-based process boundary. This repo focuses entirely on the ACVP REST protocol, test session state machines, request-retry polling, JWT authentication, and the frontend UI.
 
-## Quick start
+For development process, sprint plans, and internal conventions, see:
+* `docs/dev-process.md` (Sprint plans, architecture decisions, and checklists)
+* `CLAUDE.md` (Working context)
+* `.claude/skills/acvp-protocol/SKILL.md` (Protocol guardrails)
 
-### Unix/macOS
+---
 
+## 🏛️ Architecture & Tech Stack
+
+* **Backend:** FastAPI (Python 3) + Pydantic v2 (ACVP JSON schema validation) + SQLite.
+* **Frontend:** React + Vite + TypeScript + TanStack Query + Tailwind CSS.
+* **Proxy / Security:** Nginx acting as an ACV Proxy, terminating TLS 1.2+ and enforcing mTLS (mutual TLS) authentication.
+* **Crypto Boundary:** Calls out to FIPS 203/204 modules via CLI (`stdin/stdout` JSON) using `SUT_COMMAND`. During development, NIST golden fixtures are used as a stub.
+
+---
+
+## 🚀 Quick Start (Local Development)
+
+### 1. Fetch NIST Golden Vectors
+We use official NIST sample vectors to test the platform.
 ```bash
-# 1. Vendor the NIST golden test vectors (pinned; see tests/fixtures/nist/SOURCE.md)
 chmod +x scripts/fetch-nist-fixtures.sh
-scripts/fetch-nist-fixtures.sh
-
-# 2. Backend (Terminal 1)
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pytest                              # all green
-uvicorn app.main:app --reload       # API + docs at http://localhost:8000/docs
-
-# 3. Frontend (Terminal 2)
-cd frontend
-npm install
-npm run dev                         # http://localhost:5173
+./scripts/fetch-nist-fixtures.sh
 ```
 
-### Windows (PowerShell)
-
-```powershell
-# 1. Backend (Terminal 1)
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-.\.venv\Scripts\pytest              # run backend tests
-.\.venv\Scripts\uvicorn app.main:app --reload
-
-# 2. Frontend (Terminal 2)
-cd frontend
-npm install
-npm run dev                         # http://localhost:5173
-```
-
-### Docker (Alternative)
-
+### 2. Run with Docker (Recommended)
+This spins up the Nginx ACV Proxy (mTLS), FastAPI backend, and React frontend.
 ```bash
+# Generate dev certificates for mTLS
+./scripts/gen-certs.sh   # (or gen-certs.ps1 on Windows)
+
+# Start all services
 docker compose up --build
 ```
+* **Frontend UI:** `https://localhost:8443`
+* **API Docs:** `https://localhost:8443/docs`
+* **Demo Password:** `acvp-demo` (defined in `backend/.env.example`)
 
-Demo login password is `acvp-demo` (see `backend/.env.example`).
+### 3. Run Manually (Without Docker)
+
+**Backend:**
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+pytest                     # Run the test suite
+uvicorn app.main:app --reload
+```
+
+**Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## 🔒 Security & Authentication
+
+This platform adheres to ACVP spec §7 and §12:
+1. **mTLS (Mutual TLS):** Enforced via Nginx. Client certificates are verified before the request reaches the application.
+2. **JWT (JSON Web Tokens):** Uses `HS256` for signing. A valid token must be obtained from `/login` and provided as a `Bearer` token in the `Authorization` header.
+3. **TOTP (Upcoming):** True to NIST's production environment, the password payload can be configured to require a TOTP code. 
+
+**Testing mTLS locally:**
+```bash
+curl --cacert backend/certs/ca.crt \
+     --cert backend/certs/client.crt \
+     --key backend/certs/client.key \
+     https://localhost:8443/acvp/v1/algorithms
+```
