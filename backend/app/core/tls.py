@@ -51,19 +51,20 @@ class MTLSMiddleware(BaseHTTPMiddleware):
 
         # ── Layer 1: Verify the request came through the trusted proxy ───
         # Without this check, an attacker could connect directly to
-        # uvicorn (:8000) and forge the X-Client-Verify header.
-        if settings.proxy_secret:
-            incoming_secret = request.headers.get("X-Proxy-Secret", "")
-            if not hmac.compare_digest(incoming_secret, settings.proxy_secret):
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "error": (
-                            "Direct access denied. "
-                            "Requests must be routed through the TLS proxy."
-                        )
-                    },
-                )
+        # uvicorn (:8000) and forge the X-Client-Verify header. Settings
+        # validation guarantees proxy_secret is set whenever mTLS is on,
+        # so this layer can never be skipped (fail-closed).
+        incoming_secret = request.headers.get("X-Proxy-Secret", "")
+        if not hmac.compare_digest(incoming_secret, settings.proxy_secret or ""):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": (
+                        "Direct access denied. "
+                        "Requests must be routed through the TLS proxy."
+                    )
+                },
+            )
 
         # ── Layer 2: Verify Nginx confirmed the client certificate ───────
         client_verify = request.headers.get("X-Client-Verify")

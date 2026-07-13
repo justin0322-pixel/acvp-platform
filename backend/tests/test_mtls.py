@@ -11,8 +11,9 @@ Security tests verify that:
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.tls import MTLSMiddleware
 
 # ── Standalone test app ──────────────────────────────────────────────────────
@@ -62,34 +63,51 @@ class TestMTLSDisabled:
         assert r.status_code == 200
 
 
-# ── Tests: mTLS enabled (no proxy secret) ────────────────────────────────────
-class TestMTLSEnabledNoProxySecret:
-    """When MTLS_ENABLED=true but PROXY_SECRET is not set (legacy/simple mode)."""
+# ── Tests: fail-closed configuration ─────────────────────────────────────────
+# [HUMAN REVIEW] Secret hygiene. mTLS mode without a real PROXY_SECRET would
+# let anything on the container network forge X-Client-Verify, so it must be
+# a startup error, never a silent bypass. Same for default JWT_SECRET in
+# production (project rule: secrets never default).
+class TestFailClosedConfig:
+    def test_mtls_without_proxy_secret_refused(self):
+        with pytest.raises(ValidationError, match="PROXY_SECRET"):
+            Settings(_env_file=None, mtls_enabled=True, proxy_secret=None)
 
-    @pytest.fixture(autouse=True)
-    def _enable(self, monkeypatch):
-        monkeypatch.setenv("MTLS_ENABLED", "true")
-        monkeypatch.delenv("PROXY_SECRET", raising=False)
-        get_settings.cache_clear()
+    def test_mtls_with_placeholder_proxy_secret_refused(self):
+        with pytest.raises(ValidationError, match="PROXY_SECRET"):
+            Settings(
+                _env_file=None,
+                mtls_enabled=True,
+                proxy_secret="CHANGE-ME-GENERATE-A-REAL-SECRET",
+            )
 
-    def test_health_exempt(self):
-        r = _client.get("/health")
-        assert r.status_code == 200
+    def test_mtls_with_short_proxy_secret_refused(self):
+        with pytest.raises(ValidationError, match="PROXY_SECRET"):
+            Settings(_env_file=None, mtls_enabled=True, proxy_secret="short")
 
-    def test_no_header_returns_403(self):
-        r = _client.get("/acvp/v1/algorithms")
-        assert r.status_code == 403
-        assert "mTLS" in r.json()["error"]
+    def test_mtls_with_real_proxy_secret_accepted(self):
+        s = Settings(_env_file=None, mtls_enabled=True, proxy_secret=_TEST_PROXY_SECRET)
+        assert s.proxy_secret == _TEST_PROXY_SECRET
 
-    def test_success_passes(self):
-        r = _client.get(
-            "/acvp/v1/algorithms",
-            headers={
-                "X-Client-Verify": "SUCCESS",
-                "X-Client-DN": "CN=acvp-test-client,O=ACVP-Dev,C=US",
-            },
+    def test_production_with_default_jwt_secret_refused(self):
+        with pytest.raises(ValidationError, match="JWT_SECRET"):
+            Settings(_env_file=None, app_env="production")
+
+    def test_production_with_short_jwt_secret_refused(self):
+        with pytest.raises(ValidationError, match="JWT_SECRET"):
+            Settings(_env_file=None, app_env="production", jwt_secret="tooshort")
+
+    def test_production_with_strong_jwt_secret_accepted(self):
+        s = Settings(
+            _env_file=None,
+            app_env="production",
+            jwt_secret="a-genuinely-long-random-secret-0123456789abcdef",
         )
-        assert r.status_code == 200
+        assert s.app_env == "production"
+
+    def test_dev_defaults_still_work(self):
+        s = Settings(_env_file=None)
+        assert s.app_env == "dev" and not s.mtls_enabled
 
 
 # ── Tests: mTLS + proxy secret (production mode) ────────────────────────────

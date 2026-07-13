@@ -1,13 +1,23 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Known placeholder secrets shipped in examples/templates. Any of these in a
+# security-sensitive setting means "not configured", never a usable value.
+_PLACEHOLDER_SECRETS = {
+    "change-me-dev-only",
+    "CHANGE-ME-GENERATE-A-REAL-SECRET",
+}
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     acv_version: str = "1.0"
+    # "dev" (default) or "production". Production refuses placeholder secrets.
+    app_env: str = "dev"
     jwt_secret: str = "change-me-dev-only"
     jwt_alg: str = "HS256"
     jwt_issuer: str = "acvp-server"
@@ -60,6 +70,34 @@ class Settings(BaseSettings):
     # Root under which per-vector-set work dirs (registration/prompt/... json) live.
     genval_artifact_root: str | None = None
     genval_timeout_seconds: int = 120
+
+    @model_validator(mode="after")
+    def _fail_closed_secrets(self) -> "Settings":
+        """Refuse to start with unusable secrets (fail-closed, never fail-open).
+
+        [HUMAN REVIEW] mTLS mode: without a real PROXY_SECRET, anything on the
+        container network could forge X-Client-Verify and bypass client-cert
+        checks, so the secret is mandatory. Production: a placeholder JWT
+        signing key would make every token forgeable.
+        """
+        if self.mtls_enabled:
+            if (
+                not self.proxy_secret
+                or self.proxy_secret in _PLACEHOLDER_SECRETS
+                or len(self.proxy_secret) < 16
+            ):
+                raise ValueError(
+                    "MTLS_ENABLED=true requires PROXY_SECRET to be set to a real "
+                    "secret (>=16 chars, not a placeholder). Generate one with: "
+                    "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                )
+        if self.app_env.lower() in ("production", "prod"):
+            if self.jwt_secret in _PLACEHOLDER_SECRETS or len(self.jwt_secret) < 32:
+                raise ValueError(
+                    "APP_ENV=production requires JWT_SECRET to be set to a real "
+                    "secret (>=32 chars, not the shipped placeholder)."
+                )
+        return self
 
     @property
     def fixtures_dir(self) -> Path:

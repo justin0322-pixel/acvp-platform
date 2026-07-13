@@ -17,7 +17,9 @@ services:
       - FIXTURES_DIR_OVERRIDE=/fixtures
       - USE_NIST_GENVAL=true # grade with the real engine; false = fixture stub
       - MTLS_ENABLED=true
-      - PROXY_SECRET=CHANGE-ME-GENERATE-A-REAL-SECRET
+      # Required (fail-closed): set in the shell or a repo-root .env file.
+      # Generate: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      - PROXY_SECRET=${PROXY_SECRET:?PROXY_SECRET is required - see docs/mtls-deployment.md}
     volumes:
       - ./tests/fixtures/nist:/fixtures:ro # golden vectors, read-only (fallback + tests)
     healthcheck:
@@ -27,12 +29,15 @@ services:
       retries: 40
       start_period: 60s # the Orleans silo takes ~20-40s to come up first
 
-  # ACV Proxy — Nginx TLS termination + mTLS (ACVP spec §6 / §7).
+  # ACV Proxy — Nginx TLS termination + mTLS (ACVP spec §4.2 SHALL, §6, §7).
   proxy:
     build: ./backend/nginx
     ports:
       - "8080:8080"    # HTTP (redirects to HTTPS)
       - "8443:8443"    # HTTPS with mTLS
+    environment:
+      # Same secret as the backend; injected into nginx.conf.template at start.
+      - PROXY_SECRET=${PROXY_SECRET:?PROXY_SECRET is required - see docs/mtls-deployment.md}
     volumes:
       - ./backend/certs:/etc/nginx/certs:ro
     depends_on:
