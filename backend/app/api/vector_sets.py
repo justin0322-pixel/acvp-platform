@@ -84,7 +84,9 @@ def cancel_vector_set(
     vs = store.get_vector_set(session, vectorSetId)
     if vs is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vector set not found")
-    vs.status = "cancelled"
+    # Takes the vector set's lock, so a generate/validate thread still in flight
+    # cannot land its result afterwards and undo the cancel. See VectorSet.settle.
+    vs.cancel()
     return Response(status_code=status.HTTP_200_OK)
 
 
@@ -200,14 +202,15 @@ def _accept_results(session_id: int, vs_id: int, body: list, *, resubmit: bool) 
 
     async def _run() -> None:
         try:
-            vs.validation = client.validate(
+            validation = client.validate(
                 vs.internal_projection, response, vs.mode_folder,
                 session_id=session_id, vs_id=vs_id,
             )
-            vs.status = "disposition"
+            # settle(), not a bare assignment: the client may have cancelled this
+            # vector set while we were grading it. See VectorSet.settle.
+            vs.settle(validation=validation, status="disposition")
         except Exception as exc:  # engine/config/artifact failure -> disposition "error"
-            vs.error = str(exc)
-            vs.status = "error"
+            vs.settle(error=str(exc), status="error")
 
     run_background(_run)
     return Response(status_code=status.HTTP_200_OK)

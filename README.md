@@ -17,7 +17,7 @@ For development process, sprint plans, and internal conventions, see:
 * **Backend:** FastAPI (Python 3) + Pydantic v2 (ACVP JSON schema validation) + SQLite.
 * **Frontend:** React + Vite + TypeScript + TanStack Query + Tailwind CSS.
 * **Proxy / Security:** Nginx acting as an ACV Proxy, terminating TLS 1.2+ and enforcing mTLS (mutual TLS) authentication.
-* **Crypto Boundary:** Calls out to FIPS 203/204 modules via CLI (`stdin/stdout` JSON) using `SUT_COMMAND`. During development, NIST golden fixtures are used as a stub.
+* **Crypto Boundary:** Calls the NIST ACVP-Server GenVal engine (C#/.NET 8, + Orleans) across a process boundary via its **file-based CLI** — `GenValApp.dll -g registration.json` to generate, `-n internalProjection.json -b response.json` to validate. Enable with `USE_NIST_GENVAL=true`; by default NIST golden fixtures stand in as a stub so the flow runs with no .NET.
 
 ---
 

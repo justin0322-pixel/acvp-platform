@@ -3,6 +3,7 @@
 Replace with PostgreSQL + SQLAlchemy for deployment (see CLAUDE.md). The shapes
 here intentionally mirror a persistent model so the swap is mechanical.
 """
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import count
@@ -41,6 +42,31 @@ class VectorSet:
     error: str | None = None           # set when generation/validation raised
     expires_at: datetime | None = None  # submission deadline (spec 14)
     show_expected: bool = False        # client asked to see expected/provided (spec 12.17.5.1)
+    # Serializes a background task's completion against a concurrent cancel.
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def settle(self, **updates: Any) -> bool:
+        """Apply a background task's result — unless this vector set is already done for.
+
+        Generation and validation run on background threads (app.core.jobs) while the
+        client keeps talking to us. It can cancel a vector set, or the deadline can
+        pass, while that thread is still in flight. An unconditional `status = ...`
+        write on completion then lands *after* the cancel and resurrects the vector
+        set back into the session's listing — which spec 12.17.3 forbids.
+
+        Returns False when the write was refused because the set is terminal.
+        """
+        with self._lock:
+            if self.status == "cancelled" or self.expired():
+                return False
+            for name, value in updates.items():
+                setattr(self, name, value)
+            return True
+
+    def cancel(self) -> None:
+        """Terminal: the client withdrew this vector set (spec 12.17.3)."""
+        with self._lock:
+            self.status = "cancelled"
 
     def expired(self) -> bool:
         """True once the submission deadline has passed (spec 14).
