@@ -96,3 +96,14 @@ export const getRequest = (url: string, loginToken: string) =>
   call<RequestObject>(url, {}, loginToken);
 
 export const idFromUrl = (url: string) => Number(url.split("/").pop());
+
+export function getJwtExpiry(token: string): number | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1]));
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}

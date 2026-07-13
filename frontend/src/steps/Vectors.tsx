@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getVectorSet, getExpected, idFromUrl } from "../api/client";
 import { isRetry, isExpired } from "../api/types";
-import type { SessionObject, VectorSetResponse } from "../api/types";
+import type { SessionObject, VectorSetResponse, Prompt } from "../api/types";
 import { StepHead, Button, Json, Notice } from "../ui";
 
 function VectorSetCard({ url, session }: { url: string; session: SessionObject }) {
@@ -13,7 +13,10 @@ function VectorSetCard({ url, session }: { url: string; session: SessionObject }
     // Poll while the server is still generating (it replies with a retry signal).
     refetchInterval: (query) => {
       const d = query.state.data as VectorSetResponse | undefined;
-      return d && isRetry(d) ? 1500 : false;
+      if (d && isRetry(d)) {
+        return d.retry ? d.retry * 1000 : 1500;
+      }
+      return false;
     },
   });
 
@@ -28,12 +31,14 @@ function VectorSetCard({ url, session }: { url: string; session: SessionObject }
   const expired = d && isExpired(d);
   const ready = d && !isRetry(d) && !isExpired(d);
 
+  const promptData = ready ? d as Prompt : null;
+
   return (
     <div className="card">
       <div className="card-h">
         <div>
           <h2>Vector set #{vsId}</h2>
-          <div className="desc">{ready ? `${(d as any).algorithm} / ${(d as any).mode}` : " "}</div>
+          <div className="desc">{promptData ? `${promptData.algorithm} / ${promptData.mode}` : " "}</div>
         </div>
         <div style={{ marginLeft: "auto" }}>
           {generating && <span className="badge info">generating</span>}
@@ -51,12 +56,12 @@ function VectorSetCard({ url, session }: { url: string; session: SessionObject }
           </div>
         )}
         {expired && <Notice kind="err">This vector set has expired.</Notice>}
-        {ready && (
+        {ready && promptData && (
           <>
             <div className="between">
               <div className="muted-text">
-                {(d as any).testGroups?.length ?? 0} test group(s) ·{" "}
-                {(d as any).testGroups?.reduce((n: number, g: any) => n + (g.tests?.length ?? 0), 0)} cases
+                {promptData.testGroups?.length ?? 0} test group(s) ·{" "}
+                {promptData.testGroups?.reduce((n: number, g) => n + (g.tests?.length ?? 0), 0)} cases
               </div>
               {session.isSample && (
                 <Button variant="soft" onClick={() => setShowExpected((v) => !v)}>
