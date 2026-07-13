@@ -20,6 +20,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# mTLS enforcement — checks Nginx-forwarded client-cert headers when
+# MTLS_ENABLED=true (ACVP spec §7.1).  Must be added *after* CORS so
+# Starlette runs it *before* CORS in the middleware stack.
+from app.core.tls import MTLSMiddleware  # noqa: E402
+
+app.add_middleware(MTLSMiddleware)
+
 
 # ACVP errors carry an "error" field describing the problem (spec Appendix B),
 # not FastAPI's default "detail". Render all errors in that shape.
