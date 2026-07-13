@@ -12,27 +12,38 @@ services:
       - JWT_SECRET=change-me-dev-only
       - DEMO_PASSWORD=acvp-demo
       - FIXTURES_DIR_OVERRIDE=/fixtures
-      - USE_NIST_GENVAL=true   # grade with the real engine; false = fixture stub
+      - USE_NIST_GENVAL=true # grade with the real engine; false = fixture stub
+      - MTLS_ENABLED=true
     volumes:
-      - ./tests/fixtures/nist:/fixtures:ro   # golden vectors, read-only (fallback + tests)
+      - ./tests/fixtures/nist:/fixtures:ro # golden vectors, read-only (fallback + tests)
     healthcheck:
-      test: ["CMD", "python3", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)" ]
       interval: 5s
       timeout: 5s
       retries: 40
-      start_period: 60s   # the Orleans silo takes ~20-40s to come up first
+      start_period: 60s # the Orleans silo takes ~20-40s to come up first
+
+  # ACV Proxy — Nginx TLS termination + mTLS (ACVP spec §6 / §7).
+  proxy:
+    build: ./backend/nginx
+    ports:
+      - "8080:8080"    # HTTP (redirects to HTTPS)
+      - "8443:8443"    # HTTPS with mTLS
+    volumes:
+      - ./backend/certs:/etc/nginx/certs:ro
+    depends_on:
+      backend:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_BASE=http://localhost:8000/acvp/v1
+      - VITE_API_BASE=https://localhost:8443/acvp/v1
     depends_on:
-      backend:
-        condition: service_healthy
-
+      proxy:
+        condition: service_started
   # Deployment task queue (the prototype runs jobs in-process, so this is optional):
   # redis:
   #   image: redis:7-alpine

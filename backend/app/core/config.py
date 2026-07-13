@@ -28,6 +28,22 @@ class Settings(BaseSettings):
     # (e.g. when running in a container). Otherwise resolved relative to the repo.
     fixtures_dir_override: str | None = None
 
+    # --- TLS / mTLS (ACVP spec §7, §6 ACV Proxy pattern) -----------------------
+    # Set TLS_ENABLED=true to activate TLS termination (via Nginx or uvicorn).
+    # Set MTLS_ENABLED=true to additionally require a client certificate on all
+    # API endpoints (ACVP spec §7.1 "TLS mutual certificate authentication").
+    # In the Docker / Nginx deployment these paths refer to files mounted inside
+    # the nginx container; in bare-metal / dev mode they point at backend/certs/.
+    tls_enabled: bool = False
+    tls_certfile: str | None = None          # e.g. /etc/nginx/certs/server.crt
+    tls_keyfile: str | None = None           # e.g. /etc/nginx/certs/server.key
+    # CA cert used to verify client certificates (mTLS):
+    mtls_enabled: bool = False
+    mtls_ca_certfile: str | None = None      # e.g. /etc/nginx/certs/ca.crt
+    # Paths that are exempt from the mTLS client-cert requirement even when
+    # MTLS_ENABLED=true (health check must remain reachable by the orchestrator).
+    mtls_exempt_paths: list[str] = ["/health"]
+
     # --- Crypto boundary (NIST ACVP-Server GenVal) ------------------------------
     # When false (default), the boundary stands in with the vendored NIST fixtures
     # so the whole pipeline runs without the .NET engine. Flip to true once the
