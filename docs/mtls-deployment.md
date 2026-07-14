@@ -21,16 +21,18 @@ deployment, independent of any connection to NIST systems.
 
 ```
 DUT / browser / curl
-        │  TLS 1.2+ handshake, client certificate REQUIRED
+        │  TLS 1.2+ handshake; client certificate verified when presented
         ▼
 Nginx ACV Proxy (:8443)          backend/nginx/nginx.conf.template
-        │  ssl_verify_client on  → certless connections die at handshake
+        │  ssl_verify_client optional → INVALID certs die at handshake;
+        │  a MISSING cert is forwarded as X-Client-Verify=NONE
         │  proxies to uvicorn with:
         │    X-Client-Verify / X-Client-DN   (verification result + audit DN)
         │    X-Proxy-Secret                  (proves "came through the proxy")
         ▼
 uvicorn backend (:8000, Docker-internal only — never published to the host)
-        │  MTLSMiddleware re-checks both headers (defense in depth)
+        │  MTLSMiddleware: X-Proxy-Secret must match, X-Client-Verify must be
+        │  SUCCESS → certless requests get 403 on every non-exempt path
         ▼
 FastAPI app (JWT auth per spec §12.3 — unchanged, orthogonal layer)
 ```
@@ -64,9 +66,13 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 # 1. Dev PKI (CA + server + client certs; backend/certs/ is gitignored)
 bash scripts/gen-certs.sh
 
-# 2. Secret (repo root — compose reads .env for interpolation)
-cp .env.example .env
-python3 -c "import secrets; print('PROXY_SECRET=' + secrets.token_urlsafe(32))" > .env
+# 2. Secrets (repo root — compose reads .env for interpolation).
+#    Both are required: compose refuses to start without them (fail-closed).
+python3 - <<'EOF' > .env
+import secrets
+print("PROXY_SECRET=" + secrets.token_urlsafe(32))
+print("JWT_SECRET=" + secrets.token_urlsafe(48))
+EOF
 
 # 3. Bring everything up
 docker compose up --build
@@ -78,9 +84,16 @@ certificates and rotate `PROXY_SECRET` alongside them.
 ## Verifying the SHALL requirements
 
 ```bash
-# 1. No client certificate → MUST fail at the TLS handshake (not HTTP 403):
+# 1. No client certificate → handshake completes (ssl_verify_client optional,
+#    see Design decisions), but every API path MUST return 403 with the
+#    mTLS error — the request never reaches a handler:
 curl --cacert backend/certs/ca.crt https://localhost:8443/acvp/v1/algorithms
-# expect: alert certificate required / handshake failure
+# expect: {"error": "mTLS authentication required. ..."}  (HTTP 403)
+
+# 1b. INVALID client certificate (wrong CA) → MUST still fail at the handshake:
+#     (generate a self-signed throwaway cert to test, or use any cert not
+#      signed by backend/certs/ca.crt)
+# expect: TLS alert / handshake failure
 
 # 2. Valid client certificate → 200 (with a Bearer token for the JWT layer):
 curl --cacert backend/certs/ca.crt \
@@ -103,11 +116,21 @@ Automated coverage: `backend/tests/test_mtls.py` (middleware attack scenarios
 
 ## Design decisions
 
-- **`ssl_verify_client on` (not `optional`).** Certless connections are
-  rejected during the handshake, so unauthenticated traffic never reaches the
-  application. The container health check probes uvicorn directly on the
-  Docker-internal network, so no certless path through the proxy is needed;
-  the middleware's `/health` exemption exists only for that internal probe.
+- **`ssl_verify_client optional` (not `on`) — a deliberate tradeoff for
+  browser clients.** CORS preflight (`OPTIONS`) requests are credential-less
+  by the fetch specification, and browsers may open the preflight connection
+  without presenting a client certificate; with `on`, every browser request
+  would die at the handshake before CORS could even be negotiated. `optional`
+  keeps certificate verification (a cert that fails validation still aborts
+  the handshake) while letting certless connections reach the backend, where
+  `MTLSMiddleware` rejects every non-exempt path with 403 — so mutual
+  authentication remains mandatory for all API access, enforced one layer up.
+  Cost of the tradeoff: unauthenticated peers can now speak HTTP to the
+  middleware (larger pre-auth surface than handshake rejection); accepted in
+  exchange for a usable browser flow. Non-browser deployments that need
+  handshake-level rejection can flip the single directive back to `on`.
+  The container health check probes uvicorn directly on the Docker-internal
+  network; the middleware's `/health` exemption exists only for that probe.
 - **Cipher policy per SP 800-52r2.** TLS 1.2 limited to ECDHE + AES-GCM
   suites (forward secrecy, AEAD only); TLS 1.3 suites are fixed by
   nginx/OpenSSL and are all AEAD.
@@ -129,9 +152,8 @@ Automated coverage: `backend/tests/test_mtls.py` (middleware attack scenarios
 ## Known gaps (tracked separately)
 
 - Browser clients need the dev CA trusted and a client certificate imported;
-  `gen-certs.sh` does not yet emit a browser-importable `.p12` bundle, so the
-  web frontend cannot complete the mTLS handshake out of the box.
+  `gen-certs.sh` does not yet emit a browser-importable `.p12` bundle. Until
+  then the web frontend's API calls are rejected (403 from the mTLS
+  middleware) — demo the protocol flow with curl (see Verifying above).
 - No automated live-handshake integration test yet (items 1–4 above are
   manual).
-- Script executable bits were lost in the branch snapshot
-  (`gen-certs.sh` etc.) — invoke with `bash scripts/...` until fixed.
