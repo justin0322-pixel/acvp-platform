@@ -12,20 +12,21 @@ app = FastAPI(title="ACVP server (server-client layer)", version="0.1.0")
 
 seed_demo_metadata()
 
+# mTLS enforcement — checks Nginx-forwarded client-cert headers when
+# MTLS_ENABLED=true (ACVP spec §7.1). Must be added *before* CORS so
+# Starlette runs CORS *before* mTLS in the middleware stack (outermost).
+from app.core.tls import MTLSMiddleware  # noqa: E402
+app.add_middleware(MTLSMiddleware)
+
 # Allow the web client (dev server) to call the API from the browser.
+# Added last so it's the outermost middleware, intercepting OPTIONS preflight
+# and adding CORS headers to mTLS rejections.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# mTLS enforcement — checks Nginx-forwarded client-cert headers when
-# MTLS_ENABLED=true (ACVP spec §7.1).  Must be added *after* CORS so
-# Starlette runs it *before* CORS in the middleware stack.
-from app.core.tls import MTLSMiddleware  # noqa: E402
-
-app.add_middleware(MTLSMiddleware)
 
 
 # ACVP errors carry an "error" field describing the problem (spec Appendix B),

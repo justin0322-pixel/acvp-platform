@@ -80,6 +80,9 @@ class MTLSMiddleware(BaseHTTPMiddleware):
             )
 
         # Store the Distinguished Name on request.state for audit logging.
-        request.state.client_dn = request.headers.get("X-Client-DN", "")
+        raw_dn = request.headers.get("X-Client-DN", "")
+        # Basic sanitization: strip non-printable characters and limit length
+        clean_dn = "".join(c for c in raw_dn if c.isprintable())[:256]
+        request.state.client_dn = clean_dn
 
         return await call_next(request)

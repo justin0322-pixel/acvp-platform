@@ -80,6 +80,13 @@ class Settings(BaseSettings):
         checks, so the secret is mandatory. Production: a placeholder JWT
         signing key would make every token forgeable.
         """
+        if self.tls_enabled:
+            if not self.tls_certfile or not self.tls_keyfile:
+                raise ValueError(
+                    "TLS_ENABLED=true requires both TLS_CERTFILE and TLS_KEYFILE "
+                    "to be set to valid file paths."
+                )
+
         if self.mtls_enabled:
             if (
                 not self.proxy_secret

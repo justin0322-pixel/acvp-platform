@@ -29,7 +29,7 @@ server {
     # (Container health checks probe the backend directly on the internal
     # network, so no certless path through this proxy is needed.)
     ssl_client_certificate /etc/nginx/certs/ca.crt;
-    ssl_verify_client      on;
+    ssl_verify_client      optional;
 
     location / {
         proxy_pass http://acvp-backend:8000;
