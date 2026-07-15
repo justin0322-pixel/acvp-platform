@@ -37,7 +37,7 @@ backend defaults to `USE_NIST_GENVAL=true`, so it grades with the real engine ou
 copies them (they are gitignored, so a fresh clone won't have them):
 
 ```bash
-scripts/nist/build-genval.sh /path/to/ACVP-Server   # needs the .NET 8 SDK (see runbook below)
+scripts/nist/build-genval.sh                         # auto-clones our engine fork; needs .NET 8 SDK (see runbook)
 docker compose up --build                            # backend+engine on :8000, frontend on :5173
 ```
 
@@ -54,29 +54,28 @@ engine (no `nist-bin/` needed).
 
 ## Build it yourself (runbook)
 
-The FIPS 203 team's trimmed fork is the engine of record (gen-val reduced to ML-KEM/ML-DSA, its
-`Directory.*.props` at the repo root so `dotnet publish` needs no config copy). Our
-`scripts/nist/*` wrap the build/run.
+Our own fork **`justin0322-pixel/ACVP-Server`** is the engine of record — a fork of the FIPS 203
+team's trimmed `hhhylaiii/ACVP-Server` (gen-val reduced to ML-KEM/ML-DSA, its `Directory.*.props`
+at the repo root so `dotnet publish` needs no config copy). We own the fork, so the pinned commit
+can't move or vanish under us (the "203 way": own your fork). Our `scripts/nist/*` wrap the build/run.
 
 ```bash
 # 0. Prereq: install the .NET 8 SDK (dotnet --version should print 8.x).
 #    dotnet is often outside a non-login shell's PATH — if `which dotnet` is empty:
 #      export PATH="/usr/local/share/dotnet:$PATH"
 
-# 1. Clone the engine source (anywhere; a sibling dir is fine) and check out the PINNED commit.
-#    The engine grades our vector sets, so it is pinned exactly like the golden vectors are —
-#    build-genval.sh refuses to build anything else. The pin lives in that script.
-git clone https://github.com/hhhylaiii/ACVP-Server.git ../ACVP-Server
-git -C ../ACVP-Server checkout 61b549e51ca18c75c303cf83f6fb58f40c1de700
-
-# 2. Publish the runner + Orleans host into backend/nist-bin/ (gitignored):
-scripts/nist/build-genval.sh ../ACVP-Server        # or: NIST_SRC=../ACVP-Server scripts/nist/build-genval.sh
+# 1. Publish the runner + Orleans host into backend/nist-bin/ (gitignored). With no path,
+#    build-genval.sh auto-clones our fork into backend/nist-src/ (also gitignored) and checks
+#    out the PINNED commit. The engine grades our vector sets, so it is pinned exactly like the
+#    golden vectors are — the script refuses to build anything else. The pin lives in that script.
+scripts/nist/build-genval.sh
 #    Writes backend/nist-bin/ENGINE_SOURCE.txt recording which commit the binaries came from.
+#    (Build from an existing checkout instead: scripts/nist/build-genval.sh /path/to/ACVP-Server)
 
-# 3. Start Orleans in its own shell and leave it running:
+# 2. Start Orleans in its own shell and leave it running:
 scripts/nist/start-orleans.sh
 
-# 4. Smoke-test the engine directly (from a scratch dir), before touching the server:
+# 3. Smoke-test the engine directly (from a scratch dir), before touching the server:
 mkdir -p /tmp/gv && cd /tmp/gv
 cp <repo>/tests/fixtures/nist/ML-DSA-keyGen-FIPS204/registration.json .
 <repo>/scripts/nist/run-genval.sh generate registration.json          # -> prompt/internalProjection/expectedResults

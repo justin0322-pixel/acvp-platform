@@ -139,7 +139,12 @@ separate polling point from the results poll.
   NIST validate needs the **`internalProjection` (the answer key)**, not just the prompt — so
   `store.VectorSet` persists it at generation time. Enable the real engine with `USE_NIST_GENVAL=true`;
   the default fixture provider keeps the flow runnable with no .NET.
-- **Team repos**: 203 = `hhhylaiii/ACVP-Server` (trimmed NIST fork; the engine source of record).
+- **Engine source of record**: our own fork **`justin0322-pixel/ACVP-Server`** — a fork of the 203
+  team's `hhhylaiii/ACVP-Server` (trimmed NIST fork), pinned to a fixed commit. We own the fork the
+  "203 way" so the pinned engine can't move or vanish under us. `scripts/nist/build-genval.sh` (no
+  args) auto-clones it into `backend/nist-src/` (gitignored) at the pin and publishes the runner +
+  Orleans host into `backend/nist-bin/` (also gitignored).
+- **Team repos**: 203 = `hhhylaiii/ACVP-Server` (trimmed NIST fork; upstream of our engine fork).
   204 = `William901105/NCCU-ACVP-Server`, branch `feat/nist-genval-adapter` — it vendored the NIST server
   and wrote the Python genval provider **our `crypto_boundary/genval/` is adapted from**. Note 204 has a
   second, `local-python` native ML-DSA oracle path behind its `workflowProfile`; that is *their* fallback,
