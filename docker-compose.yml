@@ -12,7 +12,7 @@ services:
     expose:
       - "8000"
     environment:
-      - JWT_SECRET=change-me-dev-only
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - DEMO_PASSWORD=acvp-demo
       - FIXTURES_DIR_OVERRIDE=/fixtures
       - USE_NIST_GENVAL=true # grade with the real engine; false = fixture stub

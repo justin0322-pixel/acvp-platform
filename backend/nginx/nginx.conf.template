@@ -23,13 +23,16 @@ server {
     ssl_prefer_server_ciphers on;
 
     # ── mTLS (spec §4.2 SHALL "mutual authentication") ───────────────────
-    # "on": a connection without a valid client certificate fails at the
-    # TLS handshake and never reaches the application. The backend
-    # middleware re-checks the forwarded result as defense in depth.
-    # (Container health checks probe the backend directly on the internal
-    # network, so no certless path through this proxy is needed.)
+    # "optional", not "on": CORS preflights are credential-less by the fetch
+    # spec, and browsers may not present a client certificate on the preflight
+    # connection — "on" would kill every browser request at the handshake.
+    # With "optional" the certificate is still verified when presented (an
+    # INVALID cert still fails the handshake); a missing cert reaches the
+    # backend as X-Client-Verify=NONE, where MTLSMiddleware rejects every
+    # non-exempt path with 403. Mutual auth is therefore still mandatory for
+    # all API access — enforced one layer up. See docs/mtls-deployment.md.
     ssl_client_certificate /etc/nginx/certs/ca.crt;
-    ssl_verify_client      on;
+    ssl_verify_client      optional;
 
     location / {
         proxy_pass http://acvp-backend:8000;
