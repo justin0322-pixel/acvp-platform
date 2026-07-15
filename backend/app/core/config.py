@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
     proxy_secret: str | None = None
 
+    # --- TOTP second factor (NIST wiki "Credentials Specification") -------------
+    # When true, /login and /login/refresh require a fresh RFC 6238 TOTP
+    # (HMAC-SHA-256, 8 digits, 30s step) instead of the static demo password.
+    # Dev default is false — spec §4.2 lets internal testing omit this.
+    totp_enabled: bool = False
+    # Per-client seed registry: mTLS certificate Subject DN -> Base64 seed.
+    # Clients not using mTLS fall back to the "default" entry. From the env,
+    # supply JSON: TOTP_SEEDS='{"default": "<base64>"}'
+    # Generate a seed: python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+    totp_seeds: dict[str, str] = {}
+
     # --- Crypto boundary (NIST ACVP-Server GenVal) ------------------------------
     # When false (default), the boundary stands in with the vendored NIST fixtures
     # so the whole pipeline runs without the .NET engine. Flip to true once the
@@ -103,6 +114,21 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "APP_ENV=production requires JWT_SECRET to be set to a real "
                     "secret (>=32 chars, not the shipped placeholder)."
+                )
+        if self.totp_enabled:
+            import base64 as _b64
+
+            def _bad(seed: str) -> bool:
+                try:
+                    return len(_b64.b64decode(seed, validate=True)) < 16
+                except Exception:
+                    return True
+
+            if not self.totp_seeds or any(_bad(s) for s in self.totp_seeds.values()):
+                raise ValueError(
+                    "TOTP_ENABLED=true requires TOTP_SEEDS with valid Base64 seeds "
+                    "(>=16 bytes decoded). Generate one with: python -c "
+                    "\"import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())\""
                 )
         return self
 
