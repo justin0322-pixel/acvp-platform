@@ -34,6 +34,12 @@ server {
     ssl_client_certificate /etc/nginx/certs/ca.crt;
     ssl_verify_client      optional;
 
+    # ML-DSA vector-set submissions are multi-MB (sigGen expectedResults in the
+    # NIST golden vectors is ~2.4MB; prompts run to ~5MB). The nginx default of
+    # 1m would 413 every FIPS 204 results POST before it reaches the backend.
+    # Revisit once the spec's /large submission flow is implemented.
+    client_max_body_size 64m;
+
     location / {
         proxy_pass http://acvp-backend:8000;
 
