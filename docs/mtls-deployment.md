@@ -109,6 +109,13 @@ curl --tls-max 1.1 --cacert backend/certs/ca.crt \
 # 4. Direct backend access → MUST be unreachable from the host:
 curl -m 3 http://localhost:8000/acvp/v1/algorithms
 # expect: connection refused / timeout (port not published)
+
+# 5. Non-FIPS TLS 1.3 suite (ChaCha20-Poly1305) → MUST be refused:
+openssl s_client -connect localhost:8443 -tls1_3 \
+    -ciphersuites TLS_CHACHA20_POLY1305_SHA256 \
+    -CAfile backend/certs/ca.crt \
+    -cert backend/certs/client.crt -key backend/certs/client.key </dev/null
+# expect: handshake failure / no shared cipher
 ```
 
 Automated coverage: `backend/tests/test_mtls.py` (middleware attack scenarios
@@ -131,9 +138,61 @@ Automated coverage: `backend/tests/test_mtls.py` (middleware attack scenarios
   handshake-level rejection can flip the single directive back to `on`.
   The container health check probes uvicorn directly on the Docker-internal
   network; the middleware's `/health` exemption exists only for that probe.
-- **Cipher policy per SP 800-52r2.** TLS 1.2 limited to ECDHE + AES-GCM
-  suites (forward secrecy, AEAD only); TLS 1.3 suites are fixed by
-  nginx/OpenSSL and are all AEAD.
+- **Cipher policy per SP 800-52r2 / FIPS-approved only.** TLS 1.2 limited to
+  ECDHE + AES-GCM suites (forward secrecy, AEAD only). TLS 1.3 explicitly
+  restricted to `TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256` — OpenSSL's
+  default additionally enables ChaCha20-Poly1305, which is AEAD but not a
+  FIPS-approved algorithm (the NIST ACVP credentials specification requires
+  "FIPS-approved and validated algorithm primitives").
+- **Claim level: approved algorithms, not a validated module.** The cipher
+  policy guarantees only FIPS-*approved* algorithms are negotiated; the
+  crypto underneath is the distribution's stock OpenSSL, which is not a
+  CMVP-validated build. See "FIPS 140-3 claim level and upgrade path" below.
+
+## FIPS 140-3 claim level and upgrade path
+
+Two different FIPS standards appear in this project — do not conflate them:
+
+- **FIPS 203 / 204** (ML-KEM / ML-DSA): what the platform *tests DUTs
+  against*. Owned by the crypto-team engines behind `crypto_boundary/`.
+- **FIPS 140-3**: the quality standard for a *cryptographic module itself* —
+  this section is about the module underneath our own TLS stack.
+
+FIPS 140-3 distinguishes two levels of claim:
+
+| Claim | Meaning | Our status |
+|---|---|---|
+| FIPS-**approved** algorithms | only NIST-approved algorithms are negotiated (AES-GCM yes, ChaCha20 no) | ✅ enforced by the nginx cipher policy above |
+| FIPS-**validated** module | the specific code executing them is a CMVP-certified build, on a tested operational environment | ❌ stock Alpine OpenSSL — deliberate, see below |
+
+**Upgrading to "validated" swaps what is under nginx, never nginx itself**
+(nginx does no crypto; it calls the linked OpenSSL). Two routes:
+
+| Route | How | Cost | Caveat |
+|---|---|---|---|
+| A. Vendor FIPS OS base | rebuild proxy/backend images on RHEL UBI or Ubuntu Pro FIPS; run the *host* OS in FIPS mode | vendor subscription — free tiers exist (Ubuntu Pro: personal ≤5 machines; Red Hat developer: ≤16 systems) | full vendor claim requires the container *host* to be the same OS in FIPS mode (containers share the host kernel) |
+| B. Self-built OpenSSL FIPS provider | compile the CMVP-listed OpenSSL FIPS provider version, `fipsinstall`, point openssl.cnf at it | free (open source) | version must stay pinned to the certificate's; running on an untested OE is a user affirmation |
+
+**Nothing is paid to or licensed from NIST in either route.** CMVP
+certificates are held by the module vendors (who paid an accredited lab for
+testing) and are public; *using* a validated module requires no application.
+The only money in route A is the OS vendor's subscription. Look up
+certificates and their tested environments at:
+https://csrc.nist.gov/projects/cryptographic-module-validation-program/validated-modules
+
+Verification once FIPS mode is enabled (either route):
+
+```bash
+openssl list -providers            # must show the fips provider as active
+cat /proc/sys/crypto/fips_enabled  # 1 when the host kernel is in FIPS mode
+```
+
+**Decision for this phase: stay at the approved-algorithms level** and state
+it plainly (this section is that statement). The platform's current
+deliverable is a spec-faithful protocol layer; a validated-module claim only
+becomes necessary if the platform operates as a formal validation authority.
+The upgrade is deferred cheaply: both routes leave every nginx directive in
+this repo untouched.
 - **Header trust is conditional on `X-Proxy-Secret`.** The middleware
   compares with `hmac.compare_digest` and cannot be skipped: settings
   validation guarantees the secret exists whenever mTLS is on.
