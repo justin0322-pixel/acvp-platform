@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Build the NIST GenVal engine (GenValApp runner + Orleans host) from the FIPS 203
-# fork source, so this server can drive the real crypto instead of the fixtures.
+# Build the NIST GenVal engine (GenValApp runner + Orleans host) from OUR OWN fork
+# of the engine, so this server can drive the real crypto instead of the fixtures.
 #
-# Prereqs: .NET 8 SDK, and a checkout of the 203 fork:
-#   git clone https://github.com/hhhylaiii/ACVP-Server.git
+# Engine source of record is our fork justin0322-pixel/ACVP-Server — a fork of the
+# 203 team's hhhylaiii/ACVP-Server, itself a fork of usnistgov/ACVP-Server. We own
+# it, so the pinned commit can't move or vanish under us (the "203 way": own your fork).
+#
+# Prereqs: .NET 8 SDK. The engine source is fetched automatically from our fork.
 #
 # Usage:
-#   scripts/nist/build-genval.sh /path/to/ACVP-Server        # or set NIST_SRC=...
+#   scripts/nist/build-genval.sh                        # auto-clones our fork at the pin
+#   scripts/nist/build-genval.sh /path/to/ACVP-Server   # or build from an existing checkout
 #
 # Output goes to backend/nist-bin/ (gitignored). Afterwards:
 #   scripts/nist/start-orleans.sh        # leave running in its own shell
@@ -25,15 +29,27 @@ BIN_ROOT="${REPO_ROOT}/backend/nist-bin"
 # The engine is pinned, exactly like the golden vectors are (tests/fixtures/nist/SOURCE.md).
 # An unpinned engine is a silent correctness risk: it grades our vector sets, so a change in
 # it changes verdicts with nothing in this repo recording that it moved. Bump deliberately.
-ENGINE_REPO="https://github.com/hhhylaiii/ACVP-Server.git"
-ENGINE_PINNED_COMMIT="61b549e51ca18c75c303cf83f6fb58f40c1de700"   # 2026-07-09
+ENGINE_REPO="https://github.com/justin0322-pixel/ACVP-Server.git"   # our own fork of the 203 engine
+ENGINE_PINNED_COMMIT="61b549e51ca18c75c303cf83f6fb58f40c1de700"   # 2026-07-09 (203 PR #11)
+
+# Where a local checkout of our engine fork lives when no path is supplied.
+# Git-ignored (see backend/.gitignore) — the authoritative copy is our GitHub fork.
+DEFAULT_SRC="${REPO_ROOT}/backend/nist-src/ACVP-Server"
 
 NIST_SRC="${1:-${NIST_SRC:-}}"
 if [[ -z "${NIST_SRC}" ]]; then
-  echo "Usage: $0 <path-to-ACVP-Server checkout>   (or set NIST_SRC)" >&2
-  echo "Clone it first: git clone ${ENGINE_REPO}" >&2
-  echo "Pinned commit: ${ENGINE_PINNED_COMMIT}" >&2
-  exit 2
+  # No path given: clone (or reuse) our own fork and pin it. One-command default,
+  # mirroring the 203 team owning their fork.
+  NIST_SRC="${DEFAULT_SRC}"
+  if [[ ! -d "${NIST_SRC}/.git" ]]; then
+    echo "Cloning engine fork ${ENGINE_REPO}"
+    echo "  -> ${NIST_SRC}"
+    git clone "${ENGINE_REPO}" "${NIST_SRC}"
+  else
+    git -C "${NIST_SRC}" fetch --quiet origin || true
+  fi
+  echo "Checking out pinned engine commit ${ENGINE_PINNED_COMMIT} ..."
+  git -C "${NIST_SRC}" checkout --quiet "${ENGINE_PINNED_COMMIT}"
 fi
 NIST_SRC="$(cd "${NIST_SRC}" && pwd)"
 

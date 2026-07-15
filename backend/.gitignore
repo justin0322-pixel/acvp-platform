@@ -1,3 +1,7 @@
+# Local checkout of our engine fork (justin0322-pixel/ACVP-Server), cloned on demand
+# by scripts/nist/build-genval.sh. The authoritative copy is the GitHub fork; this is
+# just a working checkout, so it stays out of the repo (same reason nist-bin/ does).
+nist-src/
 # Built NIST GenVal engine binaries (produced by scripts/nist/build-genval.sh)
 # NOTE: non-dot path on purpose — .NET's PhysicalFileProvider excludes dot-prefixed
 # dirs, so the engine can't read its sharedappsettings.json from a ".nist-bin".

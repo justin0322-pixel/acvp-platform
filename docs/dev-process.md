@@ -50,7 +50,8 @@
   - 檢查：`dotnet GenValApp.dll -c registration.json`
 
   NIST 批改需要 **`internalProjection`（標準答案）**，不是只有 prompt——所以 `store.VectorSet` 在出題時就把它存下來。用 `USE_NIST_GENVAL=true` 開啟真引擎；預設走 fixture provider，無 .NET 也能跑完整流程。
-- **對方 repo**：203 = `hhhylaiii/ACVP-Server`（精簡版 NIST fork，引擎的 source of record）。204 = `William901105/NCCU-ACVP-Server`，branch `feat/nist-genval-adapter`——它 vendored 了 NIST server，並寫了 Python genval provider，**我們的 `crypto_boundary/genval/` 就是從它改來的**。注意 204 另有一條 `local-python` 原生 ML-DSA oracle 路徑（由它的 `workflowProfile` 切換），那是**他們的**後備，不是我們的合約。
+- **引擎 source of record**：我們自己的 fork **`justin0322-pixel/ACVP-Server`**——fork 自 203 的 `hhhylaiii/ACVP-Server`（精簡版 NIST fork），pin 在固定 commit。我們照「203 的做法」擁有自己的 fork，pin 住的引擎不會在腳下被人移動或刪掉。`scripts/nist/build-genval.sh`（不帶參數）會自動把它 clone 到 `backend/nist-src/`（gitignored）並 checkout 到 pin，再把 runner + Orleans host 發佈到 `backend/nist-bin/`（同樣 gitignored）。
+- **對方 repo**：203 = `hhhylaiii/ACVP-Server`（精簡版 NIST fork，我們引擎 fork 的上游）。204 = `William901105/NCCU-ACVP-Server`，branch `feat/nist-genval-adapter`——它 vendored 了 NIST server，並寫了 Python genval provider，**我們的 `crypto_boundary/genval/` 就是從它改來的**。注意 204 另有一條 `local-python` 原生 ML-DSA oracle 路徑（由它的 `workflowProfile` 切換），那是**他們的**後備，不是我們的合約。
 - ⚠️ **待釘合約風險**：ML-KEM 的 encapsulation / keyCheck 方向，**內建 .NET API** 無法注入隨機數 `m`，所以**以該 API 實作的 IUT** 在這個方向的 KAT 受限——列為 M3「全模式」的風險。這不影響我們 server 端出題（走 NIST 引擎）。
 
 ---
