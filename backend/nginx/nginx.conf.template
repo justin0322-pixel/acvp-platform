@@ -18,8 +18,12 @@ server {
     ssl_certificate_key /etc/nginx/certs/server.key;
     ssl_protocols       TLSv1.2 TLSv1.3;
     # TLS 1.2 suites: ECDHE (forward secrecy) + AES-GCM only, per SP 800-52r2.
-    # TLS 1.3 suites are fixed by nginx/OpenSSL and are all AEAD-approved.
     ssl_ciphers         ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    # TLS 1.3 suites: restrict to AES-GCM. OpenSSL's default also enables
+    # TLS_CHACHA20_POLY1305_SHA256 — AEAD, but NOT a FIPS-approved algorithm
+    # (NIST credentials spec requires FIPS-approved primitives; SP 800-52r2
+    # approves only AES-GCM/CCM).
+    ssl_conf_command    Ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256;
     ssl_prefer_server_ciphers on;
 
     # ── mTLS (spec §4.2 SHALL "mutual authentication") ───────────────────
