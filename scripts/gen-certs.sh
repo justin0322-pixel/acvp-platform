@@ -137,11 +137,14 @@ rm -f "$OUTDIR/client.csr"
 # OpenSSL 3's new default (AES) — pass -legacy when the installed openssl
 # supports it (3.0+); older openssl (1.1.1, no -legacy flag) already defaults
 # to the compatible encryption, so it's safe to skip.
+# The ${arr[@]+...} guard: macOS's bash 3.2 treats an empty array as unset,
+# so a bare "${arr[@]}" dies under `set -u` (LibreSSL has no -legacy flag,
+# leaving the array empty there).
 PKCS12_LEGACY_FLAG=()
 if openssl pkcs12 -help 2>&1 | grep -q -- '-legacy'; then
     PKCS12_LEGACY_FLAG=(-legacy)
 fi
-openssl pkcs12 -export "${PKCS12_LEGACY_FLAG[@]}" \
+openssl pkcs12 -export ${PKCS12_LEGACY_FLAG[@]+"${PKCS12_LEGACY_FLAG[@]}"} \
     -in       "$OUTDIR/client.crt" \
     -inkey    "$OUTDIR/client.key" \
     -certfile "$OUTDIR/ca.crt" \

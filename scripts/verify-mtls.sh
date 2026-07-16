@@ -45,6 +45,8 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # UNKNOWN" before it ever reaches nginx — unrelated to the client-cert
 # revocation (ssl_crl) this script tests. --ssl-no-revoke is Schannel-only
 # and errors out on OpenSSL-backed curl, so only add it when Schannel is in use.
+# Expansions below use ${CURL_OPTS[@]+...}: macOS's bash 3.2 treats an empty
+# array as unset, so a bare "${CURL_OPTS[@]}" dies under `set -u`.
 CURL_OPTS=()
 if curl --version | head -1 | grep -qi schannel; then
     CURL_OPTS+=(--ssl-no-revoke)
@@ -105,7 +107,7 @@ done
 echo "[verify-mtls] Waiting for $BASE/health ..."
 ready=0
 for _ in $(seq 1 30); do
-    if curl -sk -m 2 -o /dev/null "${CURL_OPTS[@]}" "$BASE/health"; then
+    if curl -sk -m 2 -o /dev/null ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} "$BASE/health"; then
         ready=1
         break
     fi
@@ -120,7 +122,7 @@ fi
 #      mTLS error (ssl_verify_client optional; MTLSMiddleware enforces it).
 echo "[1] No client certificate -> 403 mTLS error"
 body="$WORKDIR/1.json"
-code=$(curl -s -o "$body" -w '%{http_code}' "${CURL_OPTS[@]}" --cacert "$CA" "$BASE/acvp/v1/algorithms")
+code=$(curl -s -o "$body" -w '%{http_code}' ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --cacert "$CA" "$BASE/acvp/v1/algorithms")
 if [ "$code" = "403" ] && grep -q "mTLS" "$body" 2>/dev/null; then
     pass "no-cert request rejected with 403 + mTLS error"
 else
@@ -132,7 +134,7 @@ echo "[1b] Invalid (wrong-CA) client certificate -> rejected (HTTP 400, before r
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
     -keyout "$WORKDIR/bad.key" -out "$WORKDIR/bad.crt" \
     -subj "/CN=untrusted-throwaway" >/dev/null 2>&1
-assert_cert_rejected_400 "wrong-CA client cert" "${CURL_OPTS[@]}" --cacert "$CA" \
+assert_cert_rejected_400 "wrong-CA client cert" ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --cacert "$CA" \
     --cert "$WORKDIR/bad.crt" --key "$WORKDIR/bad.key" \
     "$BASE/acvp/v1/algorithms"
 
@@ -140,7 +142,7 @@ assert_cert_rejected_400 "wrong-CA client cert" "${CURL_OPTS[@]}" --cacert "$CA"
 echo "[2] Valid client certificate -> passes the mTLS layer"
 body="$WORKDIR/2.json"
 verbose="$WORKDIR/2.verbose.log"
-code=$(curl -v -s -o "$body" -w '%{http_code}' "${CURL_OPTS[@]}" --cacert "$CA" \
+code=$(curl -v -s -o "$body" -w '%{http_code}' ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --cacert "$CA" \
     --cert "$CLIENT_CRT" --key "$CLIENT_KEY" \
     "$BASE/acvp/v1/algorithms" 2>"$verbose")
 if [ "$code" = "000" ] || [ -z "$code" ]; then
@@ -157,7 +159,7 @@ fi
 
 # ── 3. TLS below 1.2 → MUST be refused ──────────────────────────────────────
 echo "[3] TLS 1.1 -> refused"
-assert_handshake_rejected "TLS 1.1" "${CURL_OPTS[@]}" --tls-max 1.1 --cacert "$CA" \
+assert_handshake_rejected "TLS 1.1" ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --tls-max 1.1 --cacert "$CA" \
     --cert "$CLIENT_CRT" --key "$CLIENT_KEY" \
     "$BASE/acvp/v1/algorithms"
 
@@ -200,7 +202,7 @@ if [ -f "$CA_CNF" ]; then
     then
         if command -v docker >/dev/null 2>&1 && docker compose exec -T "$COMPOSE_SERVICE" nginx -s reload >/dev/null 2>&1; then
             sleep 1
-            assert_cert_rejected_400 "revoked client certificate" "${CURL_OPTS[@]}" --cacert "$CA" \
+            assert_cert_rejected_400 "revoked client certificate" ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} --cacert "$CA" \
                 --cert "$WORKDIR/revme.crt" --key "$WORKDIR/revme.key" \
                 "$BASE/acvp/v1/algorithms"
         else
