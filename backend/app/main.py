@@ -24,6 +24,12 @@ app.add_middleware(MTLSMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
+    # TLS client certificates are credentials per the fetch spec: without
+    # allow_credentials the browser drops responses to credentials:"include"
+    # requests, and without that mode it opens a cert-less connection that
+    # MTLSMiddleware rejects. Requires explicit origins (no "*"), which
+    # cors_origins already is.
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -29,7 +29,10 @@ async function call<T>(pathOrUrl: string, init: RequestInit = {}, token?: string
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(resolve(pathOrUrl), { ...init, headers });
+  // credentials:"include" so the browser presents the TLS client certificate
+  // on the mTLS deployment (the fetch spec treats client certs as credentials
+  // and omits them on cross-origin requests otherwise).
+  const res = await fetch(resolve(pathOrUrl), { ...init, headers, credentials: "include" });
   const text = await res.text();
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
