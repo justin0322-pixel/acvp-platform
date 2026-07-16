@@ -16,7 +16,7 @@ def unwrap(body: Any) -> dict[str, Any]:
     Wire format: [{"acvVersion": "1.0"}, { ...payload... }]
     """
     s = get_settings()
-    if not isinstance(body, list) or len(body) < 2 or not isinstance(body[0], dict):
+    if not isinstance(body, list) or len(body) != 2 or not isinstance(body[0], dict):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed ACVP envelope")
     version = body[0].get("acvVersion")
     if version != s.acv_version:
