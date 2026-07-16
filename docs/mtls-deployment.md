@@ -24,8 +24,10 @@ DUT / browser / curl
         │  TLS 1.2+ handshake; client certificate verified when presented
         ▼
 Nginx ACV Proxy (:8443)          backend/nginx/nginx.conf.template
-        │  ssl_verify_client optional → INVALID certs die at handshake;
-        │  a MISSING cert is forwarded as X-Client-Verify=NONE
+        │  ssl_verify_client optional → INVALID certs get nginx's own 400
+        │  "SSL certificate error" (handshake still completes; verified
+        │  empirically — see Design decisions); a MISSING cert is forwarded
+        │  as X-Client-Verify=NONE
         │  proxies to uvicorn with:
         │    X-Client-Verify / X-Client-DN   (verification result + audit DN)
         │    X-Proxy-Secret                  (proves "came through the proxy")
@@ -104,7 +106,8 @@ the RFC 6238 Appendix B SHA-256 test vectors.
 ## Setup
 
 ```bash
-# 1. Dev PKI (CA + server + client certs; backend/certs/ is gitignored)
+# 1. Dev PKI (CA + server + client certs, CRL, and a browser-importable
+#    client.p12; backend/certs/ is gitignored)
 bash scripts/gen-certs.sh
 
 # 2. Secrets (repo root — compose reads .env for interpolation).
@@ -122,45 +125,103 @@ docker compose up --build
 For a real deployment, replace the dev CA with organization-PKI-issued
 certificates and rotate `PROXY_SECRET` alongside them.
 
+## Browser client setup
+
+The web console needs the dev CA trusted and a client certificate imported —
+without both, every API call gets a 403 from the mTLS middleware (the
+frontend's own TOTP posture is unchanged, see above; this section is only
+about presenting a client certificate at all).
+
+1. **Trust the dev CA** (`backend/certs/ca.crt`), once per machine:
+   - **macOS**: open the file (or `security add-trusted-cert -d -r trustRoot
+     -k ~/Library/Keychains/login.keychain-db backend/certs/ca.crt`), then in
+     Keychain Access set it to "Always Trust" for SSL.
+   - **Windows**: double-click `ca.crt` → *Install Certificate* → *Local
+     Machine* (or *Current User*) → *Place all certificates in the following
+     store* → *Trusted Root Certification Authorities*.
+   - **Firefox** (keeps its own store regardless of OS): *Settings* →
+     *Privacy & Security* → *Certificates* → *View Certificates* →
+     *Authorities* → *Import* → `ca.crt` → check *Trust this CA to identify
+     websites*.
+2. **Import the client identity**: `backend/certs/client.p12`, password
+   `$CERT_P12_PASSWORD` (default `acvp-dev` — see `gen-certs.sh`).
+   - **macOS**: double-click the `.p12`, or `security import
+     backend/certs/client.p12 -P acvp-dev -k ~/Library/Keychains/login.keychain-db`.
+   - **Windows**: double-click the `.p12` → *Current User* → enter the
+     password → *Place all certificates in the following store* → *Personal*.
+   - **Firefox**: *Certificates* → *Your Certificates* → *Import* →
+     `client.p12` → enter the password.
+3. Visit `https://localhost:8443` (or the frontend dev server proxied
+   through it). The browser prompts to pick a client certificate on first
+   connection — select the imported `acvp-test-client` identity.
+
+This is dev-only PKI (self-signed CA, checked-in-gitignore private keys) —
+never trust `backend/certs/ca.crt` on a machine outside local development.
+
+## Revoking a client certificate
+
+If a DUT's private key leaks, revoke just that certificate instead of
+rotating the whole CA:
+
+```bash
+# 1. Revoke (records the serial in backend/certs/index.txt)
+openssl ca -config backend/certs/ca.cnf -revoke backend/certs/client.crt
+
+# 2. Re-sign the CRL nginx reads (ssl_crl in nginx.conf.template)
+openssl ca -config backend/certs/ca.cnf -gencrl -out backend/certs/ca.crl
+
+# 3. Nginx re-reads the CRL on reload — no restart, no downtime
+docker compose exec proxy nginx -s reload
+```
+
+Issue the replacement client identity with `gen-certs.sh` (or repeat its
+client-cert step manually) and redistribute the new `.p12` to that client
+out-of-band. `backend/certs/ca.cnf` is the `openssl ca` database gen-certs.sh
+sets up; it's what makes revocation possible without touching the CA key.
+
+## Rate limiting
+
+`/acvp/v1/login` and `/acvp/v1/login/refresh` are throttled per source IP
+(`limit_req zone=login_limit`, 10r/m + burst 5, `nginx.conf.template`). The
+NIST credentials-spec TOTP is 8 digits (10^8 search space) — large enough
+that this isn't the primary defense, but online guessing across the 30s
+validity window is still cheap to make more expensive. Exceeding the limit
+returns `429`. Tune `rate=`/`burst=` in `nginx.conf.template` if legitimate
+automated clients (e.g. a CI job re-logging-in frequently) start tripping it.
+
 ## Verifying the SHALL requirements
 
 ```bash
-# 1. No client certificate → handshake completes (ssl_verify_client optional,
-#    see Design decisions), but every API path MUST return 403 with the
-#    mTLS error — the request never reaches a handler:
-curl --cacert backend/certs/ca.crt https://localhost:8443/acvp/v1/algorithms
-# expect: {"error": "mTLS authentication required. ..."}  (HTTP 403)
-
-# 1b. INVALID client certificate (wrong CA) → MUST still fail at the handshake:
-#     (generate a self-signed throwaway cert to test, or use any cert not
-#      signed by backend/certs/ca.crt)
-# expect: TLS alert / handshake failure
-
-# 2. Valid client certificate → 200 (with a Bearer token for the JWT layer):
-curl --cacert backend/certs/ca.crt \
-     --cert backend/certs/client.crt --key backend/certs/client.key \
-     https://localhost:8443/acvp/v1/algorithms -H "Authorization: Bearer $TOKEN"
-
-# 3. TLS below 1.2 → MUST be refused:
-curl --tls-max 1.1 --cacert backend/certs/ca.crt \
-     --cert backend/certs/client.crt --key backend/certs/client.key \
-     https://localhost:8443/acvp/v1/algorithms
-# expect: protocol version alert
-
-# 4. Direct backend access → MUST be unreachable from the host:
-curl -m 3 http://localhost:8000/acvp/v1/algorithms
-# expect: connection refused / timeout (port not published)
-
-# 5. Non-FIPS TLS 1.3 suite (ChaCha20-Poly1305) → MUST be refused:
-openssl s_client -connect localhost:8443 -tls1_3 \
-    -ciphersuites TLS_CHACHA20_POLY1305_SHA256 \
-    -CAfile backend/certs/ca.crt \
-    -cert backend/certs/client.crt -key backend/certs/client.key </dev/null
-# expect: handshake failure / no shared cipher
+docker compose up --build -d
+bash scripts/verify-mtls.sh
 ```
 
-Automated coverage: `backend/tests/test_mtls.py` (middleware attack scenarios
-+ fail-closed settings). A live-handshake integration test is still TODO.
+Runs the real handshake against the live proxy — not the middleware in
+isolation — and asserts on it:
+
+1. No client certificate → handshake completes (`ssl_verify_client
+   optional`, see Design decisions), but every API path MUST return 403 with
+   the mTLS error — the request never reaches a handler.
+2. INVALID client certificate (wrong CA) → MUST be rejected (verified: nginx
+   completes the TLS handshake, then returns its own 400 "SSL certificate
+   error" before proxying to the backend — see Design decisions).
+3. Valid client certificate → passes the mTLS layer (reaches the JWT-auth
+   application code instead of the 403 mTLS error).
+4. TLS below 1.2 → MUST be refused.
+5. Direct backend access (`:8000`) → MUST be unreachable from the host.
+6. Non-FIPS TLS 1.3 suite (ChaCha20-Poly1305) → MUST be refused.
+7. A revoked client certificate → MUST be rejected the same way as #2 (HTTP
+   400, not a handshake failure — `ssl_crl` is checked as part of the same
+   client-cert verification path). Skips cleanly if `backend/certs/ca.cnf`
+   predates the current `gen-certs.sh`.
+
+Exit code is nonzero if any check fails — wired into CI at
+`.github/workflows/mtls-verify.yml` (one job: build the compose stack,
+wait healthy, run the script, tear down).
+
+Automated coverage: `backend/tests/test_mtls.py` (middleware attack
+scenarios + fail-closed settings, via `TestClient` — no real TLS) plus
+`scripts/verify-mtls.sh` (real handshake, see above).
 
 ## Design decisions
 
@@ -169,16 +230,27 @@ Automated coverage: `backend/tests/test_mtls.py` (middleware attack scenarios
   by the fetch specification, and browsers may open the preflight connection
   without presenting a client certificate; with `on`, every browser request
   would die at the handshake before CORS could even be negotiated. `optional`
-  keeps certificate verification (a cert that fails validation still aborts
-  the handshake) while letting certless connections reach the backend, where
-  `MTLSMiddleware` rejects every non-exempt path with 403 — so mutual
-  authentication remains mandatory for all API access, enforced one layer up.
+  keeps certificate verification (a cert that fails validation is still
+  rejected — see below) while letting certless connections reach the
+  backend, where `MTLSMiddleware` rejects every non-exempt path with 403 —
+  so mutual authentication remains mandatory for all API access, enforced
+  one layer up.
   Cost of the tradeoff: unauthenticated peers can now speak HTTP to the
   middleware (larger pre-auth surface than handshake rejection); accepted in
   exchange for a usable browser flow. Non-browser deployments that need
   handshake-level rejection can flip the single directive back to `on`.
   The container health check probes uvicorn directly on the Docker-internal
   network; the middleware's `/health` exemption exists only for that probe.
+  **Verified behavior for a presented-but-invalid cert (wrong CA, or
+  revoked):** contrary to what this doc used to claim, nginx does NOT abort
+  the TLS handshake — under `optional` it completes the handshake regardless
+  of verification outcome, then rejects the *HTTP request* with its own
+  built-in `400 "The SSL certificate error"` page before proxying anywhere,
+  same result (the request never reaches the backend) via a different
+  mechanism than a handshake-level TLS alert. Confirmed with
+  `scripts/verify-mtls.sh` against a live proxy. Only a genuine
+  protocol-level mismatch (TLS version floor, cipher suite) produces an
+  actual handshake alert (see checks 3 and 6 below).
 - **Cipher policy per SP 800-52r2 / FIPS-approved only.** TLS 1.2 limited to
   ECDHE + AES-GCM suites (forward secrecy, AEAD only). TLS 1.3 explicitly
   restricted to `TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256` — OpenSSL's
@@ -251,9 +323,9 @@ this repo untouched.
 
 ## Known gaps (tracked separately)
 
-- Browser clients need the dev CA trusted and a client certificate imported;
-  `gen-certs.sh` does not yet emit a browser-importable `.p12` bundle. Until
-  then the web frontend's API calls are rejected (403 from the mTLS
-  middleware) — demo the protocol flow with curl (see Verifying above).
-- No automated live-handshake integration test yet (items 1–4 above are
-  manual).
+- No CRL distribution beyond the file nginx reads locally (no CRL Distribution
+  Point / OCSP) — fine for a single dev-CA deployment, would need one before
+  clients other than this proxy need to check revocation status independently.
+- Real-deployment CA hygiene (offline root, intermediate issuing CA, HSM-backed
+  key storage) is out of scope for the dev PKI `gen-certs.sh` produces —
+  swap it for organization-issued certificates before anything but local dev.
