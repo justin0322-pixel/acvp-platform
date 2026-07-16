@@ -60,6 +60,47 @@ Generate a secret:
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
+## TOTP second factor (NIST credentials specification)
+
+Source: https://github.com/usnistgov/ACVP/wiki/Credentials-Specification-for-Accessing-ACVP
+— NIST's deployment defines the login `password` field as an RFC 6238 TOTP.
+The protocol spec leaves the field's content open, so this is an opt-in mode:
+
+| Parameter | Value (pinned by the wiki) |
+|---|---|
+| Algorithm | HMAC-SHA-256 |
+| Digits | 8, leading zeros preserved (string compare) |
+| Time step | 30 seconds; ±1 step drift tolerated (clients should NTP-sync) |
+| Seed | Base64, per client, distributed out-of-band |
+| Replay | an accepted code is never accepted again (SP 800-63B) |
+
+- `TOTP_ENABLED=false` (default): static `DEMO_PASSWORD`, for development and
+  the web console — spec §4.2 lets internal testing omit this.
+- `TOTP_ENABLED=true` (validation-authority mode): `/login` and
+  `/login/refresh` require a fresh code. The caller's seed is looked up in
+  `TOTP_SEEDS` by the mTLS certificate Subject DN (forwarded as
+  `X-Client-DN`), falling back to the `"default"` entry — mirroring NIST's
+  model where the certificate says *who you are* and the TOTP proves you
+  *hold that client's seed*. Fail-closed: enabling without valid seeds
+  refuses to start.
+
+Seed lifecycle (operational, mirrors NIST): the authority generates a seed
+per client, delivers it out-of-band (never via the API, never in version
+control), and registers it in `TOTP_SEEDS`. Machine clients keep the seed in
+their own configuration and compute codes on demand — same as NIST's
+reference clients. For manual testing:
+
+```bash
+CODE=$(python3 scripts/totp.py "$TOTP_SEED")   # fresh 8-digit code
+```
+
+The web console intentionally stays on dev mode (decision 2026-07-16): a
+browser holding a long-term seed would be a worse exposure than the demo
+password, and TOTP mode targets machine clients.
+
+Correctness oracle: `backend/tests/test_totp.py` pins the implementation to
+the RFC 6238 Appendix B SHA-256 test vectors.
+
 ## Setup
 
 ```bash
