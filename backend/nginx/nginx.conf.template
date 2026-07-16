@@ -9,6 +9,13 @@
 # from the environment at container start (envsubst), so the real secret
 # never lives in version control.
 
+# /login and /login/refresh accept a TOTP code (8 digits => 10^8 search space,
+# NIST wiki credentials spec) or the dev demo password — still worth throttling
+# online guessing per source IP. 10r/m with a small burst covers normal client
+# retry/backoff without opening a practical brute-force window.
+# See docs/mtls-deployment.md § Rate limiting.
+limit_req_zone $binary_remote_addr zone=login_limit:10m rate=10r/m;
+
 server {
     listen 8443 ssl;
     server_name localhost acvp-server;
@@ -18,35 +25,74 @@ server {
     ssl_certificate_key /etc/nginx/certs/server.key;
     ssl_protocols       TLSv1.2 TLSv1.3;
     # TLS 1.2 suites: ECDHE (forward secrecy) + AES-GCM only, per SP 800-52r2.
-    # TLS 1.3 suites are fixed by nginx/OpenSSL and are all AEAD-approved.
     ssl_ciphers         ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    # TLS 1.3 suites: restrict to AES-GCM. OpenSSL's default also enables
+    # TLS_CHACHA20_POLY1305_SHA256 — AEAD, but NOT a FIPS-approved algorithm
+    # (NIST credentials spec requires FIPS-approved primitives; SP 800-52r2
+    # approves only AES-GCM/CCM).
+    ssl_conf_command    Ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256;
     ssl_prefer_server_ciphers on;
 
+    # HTTP Strict Transport Security (SP 800-52r2 recommendation): once a
+    # client has seen this, browsers refuse to downgrade to plain HTTP for the
+    # max-age window, even if an attacker strips the 8080->8443 redirect.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
     # ── mTLS (spec §4.2 SHALL "mutual authentication") ───────────────────
-    # "on": a connection without a valid client certificate fails at the
-    # TLS handshake and never reaches the application. The backend
-    # middleware re-checks the forwarded result as defense in depth.
-    # (Container health checks probe the backend directly on the internal
-    # network, so no certless path through this proxy is needed.)
+    # "optional", not "on": CORS preflights are credential-less by the fetch
+    # spec, and browsers may not present a client certificate on the preflight
+    # connection — "on" would kill every browser request at the handshake.
+    # With "optional" the certificate is still verified when presented — an
+    # INVALID cert (wrong CA, or revoked via ssl_crl below) doesn't abort the
+    # handshake, but nginx rejects the HTTP request with its own built-in 400
+    # "SSL certificate error" before proxying anywhere (verified empirically,
+    # see docs/mtls-deployment.md § Design decisions). A missing cert reaches
+    # the backend as X-Client-Verify=NONE, where MTLSMiddleware rejects every
+    # non-exempt path with 403. Mutual auth is therefore still mandatory for
+    # all API access — enforced one layer up. See docs/mtls-deployment.md.
     ssl_client_certificate /etc/nginx/certs/ca.crt;
     ssl_verify_client      optional;
+    # Revocation (see gen-certs.sh and docs/mtls-deployment.md § Revoking a
+    # client certificate). Starts as an empty CRL; nginx re-reads it on reload.
+    ssl_crl                /etc/nginx/certs/ca.crl;
+    # Chain depth nginx will walk verifying a client cert against the CA. Our
+    # dev/deployment CA issues leaf certs directly (single-tier), so depth 1
+    # is correct as-is; raise it if an intermediate CA is ever introduced
+    # between the root and client certs, or client certs stop verifying.
+    ssl_verify_depth       1;
+
+    # ML-DSA vector-set submissions are multi-MB (sigGen expectedResults in the
+    # NIST golden vectors is ~2.4MB; prompts run to ~5MB). The nginx default of
+    # 1m would 413 every FIPS 204 results POST before it reaches the backend.
+    # Revisit once the spec's /large submission flow is implemented.
+    client_max_body_size 64m;
+
+    # Common upstream headers — inherited by every location below that
+    # doesn't redeclare proxy_set_header (nginx only replaces the whole set
+    # on override, never merges), so it's defined once here.
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Forward mTLS verification result to the backend middleware.
+    proxy_set_header X-Client-Verify $ssl_client_verify;
+    proxy_set_header X-Client-DN     $ssl_client_s_dn;
+
+    # Shared secret proves the request came through this proxy, not a
+    # direct connection to uvicorn. Injected from the environment; must
+    # match the backend's PROXY_SECRET.
+    proxy_set_header X-Proxy-Secret "${PROXY_SECRET}";
+
+    # Credential-guessing surface (TOTP or demo password) — rate-limited.
+    location ~ ^/acvp/v1/login(/refresh)?$ {
+        limit_req         zone=login_limit burst=5 nodelay;
+        limit_req_status   429;
+        proxy_pass http://backend:8000;
+    }
 
     location / {
-        proxy_pass http://acvp-backend:8000;
-
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Forward mTLS verification result to the backend middleware.
-        proxy_set_header X-Client-Verify $ssl_client_verify;
-        proxy_set_header X-Client-DN     $ssl_client_s_dn;
-
-        # Shared secret proves the request came through this proxy, not a
-        # direct connection to uvicorn. Injected from the environment; must
-        # match the backend's PROXY_SECRET.
-        proxy_set_header X-Proxy-Secret "${PROXY_SECRET}";
+        proxy_pass http://backend:8000;
     }
 }
 

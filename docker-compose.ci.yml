@@ -1,0 +1,24 @@
+# CI-only override for .github/workflows/mtls-verify.yml (scripts/verify-mtls.sh).
+#
+# Swaps the backend service's build for a minimal FastAPI-only image: the
+# real backend/Dockerfile bakes in the NIST GenVal .NET engine from
+# backend/nist-bin/ (produced by scripts/nist/build-genval.sh, which clones
+# and builds an external repo) — heavy, and irrelevant to what this override
+# tests, since the mTLS/nginx layer under test doesn't touch the crypto
+# boundary at all. The proxy service is untouched: it's the actual subject
+# of scripts/verify-mtls.sh.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml up --build -d
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile_inline: |
+        FROM python:3.12-slim AS backend
+        WORKDIR /app
+        RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pydantic pydantic-settings pyjwt arq
+        COPY app ./app
+        EXPOSE 8000
+        CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - USE_NIST_GENVAL=false

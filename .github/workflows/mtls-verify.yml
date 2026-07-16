@@ -1,0 +1,65 @@
+name: mTLS verify
+
+# Exercises the real TLS/mTLS handshake against a live proxy (scripts/verify-mtls.sh),
+# not just the middleware in isolation (backend/tests/test_mtls.py, run separately by
+# the normal pytest job). See docs/mtls-deployment.md "Verifying the SHALL requirements".
+
+on:
+  push:
+    paths:
+      - "backend/nginx/**"
+      - "backend/app/core/tls.py"
+      - "backend/app/core/config.py"
+      - "backend/app/main.py"
+      - "scripts/gen-certs.sh"
+      - "scripts/verify-mtls.sh"
+      - "docker-compose.yml"
+      - "docker-compose.ci.yml"
+      - ".github/workflows/mtls-verify.yml"
+  pull_request:
+    paths:
+      - "backend/nginx/**"
+      - "backend/app/core/tls.py"
+      - "backend/app/core/config.py"
+      - "backend/app/main.py"
+      - "scripts/gen-certs.sh"
+      - "scripts/verify-mtls.sh"
+      - "docker-compose.yml"
+      - "docker-compose.ci.yml"
+      - ".github/workflows/mtls-verify.yml"
+  workflow_dispatch:
+
+jobs:
+  verify-mtls:
+    runs-on: ubuntu-latest
+    # Both files are needed by every docker compose invocation in this job,
+    # including the ones scripts/verify-mtls.sh runs internally (the CRL
+    # reload check execs into the proxy container by service name).
+    env:
+      COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate dev PKI (CA, server, client certs, CRL, browser p12)
+        run: bash scripts/gen-certs.sh
+
+      - name: Write required secrets (.env, fail-closed compose interpolation)
+        run: |
+          {
+            echo "PROXY_SECRET=$(openssl rand -base64 32)"
+            echo "JWT_SECRET=$(openssl rand -base64 48)"
+          } > .env
+
+      - name: Bring up the stack (mTLS/nginx layer; GenVal engine stubbed out — see docker-compose.ci.yml)
+        run: docker compose up --build -d backend proxy
+
+      - name: Run mTLS verification
+        run: bash scripts/verify-mtls.sh
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
